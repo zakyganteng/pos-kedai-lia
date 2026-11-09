@@ -1,9 +1,5 @@
--- Migration awal: skema basis data POS Kedai Lia 287 & Salon Lia
--- Berdasarkan ERD revisi (setelah masukan T-7 dan M-11)
-
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- Outlet: satu sistem menaungi dua jenis usaha (kedai & salon)
 CREATE TABLE outlet (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     nama VARCHAR(100) NOT NULL,
@@ -12,7 +8,6 @@ CREATE TABLE outlet (
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
--- Pengguna: Owner (outlet_id null = akses semua outlet), Admin, Kasir
 CREATE TABLE pengguna (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     outlet_id UUID REFERENCES outlet(id),
@@ -23,7 +18,6 @@ CREATE TABLE pengguna (
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
--- Karyawan: yang mengerjakan layanan salon (bukan akun login sistem)
 CREATE TABLE karyawan (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     outlet_id UUID NOT NULL REFERENCES outlet(id),
@@ -33,7 +27,6 @@ CREATE TABLE karyawan (
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
--- Item: gabungan produk (kedai) dan layanan (salon), dibedakan lewat kolom type
 CREATE TABLE item (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     outlet_id UUID NOT NULL REFERENCES outlet(id),
@@ -43,7 +36,6 @@ CREATE TABLE item (
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
--- Inventory: HANYA dipakai item bertipe product, salon tidak akan punya baris di sini
 CREATE TABLE inventory (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     item_id UUID UNIQUE NOT NULL REFERENCES item(id),
@@ -51,7 +43,6 @@ CREATE TABLE inventory (
     updated_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
--- Transaksi
 CREATE TABLE transaksi (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     outlet_id UUID NOT NULL REFERENCES outlet(id),
@@ -62,7 +53,6 @@ CREATE TABLE transaksi (
     status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'selesai', 'dibatalkan'))
 );
 
--- Detail transaksi: karyawan_id & durasi_menit hanya terisi kalau item-nya bertipe service
 CREATE TABLE detail_transaksi (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     transaksi_id UUID NOT NULL REFERENCES transaksi(id),
@@ -74,7 +64,6 @@ CREATE TABLE detail_transaksi (
     durasi_menit INTEGER
 );
 
--- Pembayaran: relasi satu-ke-satu ke transaksi
 CREATE TABLE pembayaran (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     transaksi_id UUID UNIQUE NOT NULL REFERENCES transaksi(id),
@@ -85,7 +74,6 @@ CREATE TABLE pembayaran (
     paid_at TIMESTAMP
 );
 
--- Pengeluaran: biaya operasional per outlet
 CREATE TABLE pengeluaran (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     outlet_id UUID NOT NULL REFERENCES outlet(id),

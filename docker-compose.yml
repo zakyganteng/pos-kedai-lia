@@ -1,4 +1,4 @@
-﻿services:
+services:
   db:
     image: postgres:16-alpine
     restart: always
@@ -11,15 +11,34 @@
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./backend/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
 
   backend:
     build: ./backend
     ports:
       - "8090:8090"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgres://postgres:postgres@db:5432/pos_kedai_lia?sslmode=disable
+      PORT: "8090"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Dipanggil dari BROWSER kamu (bukan dari dalam Docker), jadi harus
+        # tetap "localhost", bukan nama service "backend"
+        NEXT_PUBLIC_API_URL: http://localhost:8090
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
 
 volumes:
   db_data:
