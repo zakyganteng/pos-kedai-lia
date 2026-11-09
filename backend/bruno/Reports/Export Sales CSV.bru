@@ -1,0 +1,17 @@
+meta {
+  name: Export Sales CSV
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/reports/sales.csv?businessLineId={{kedaiLineId}}&from=2026-01-01&to=2026-12-31
+  body: none
+  auth: inherit
+}
+
+params:query {
+  businessLineId: {{kedaiLineId}}
+  from: 2026-01-01
+  to: 2026-12-31
+}

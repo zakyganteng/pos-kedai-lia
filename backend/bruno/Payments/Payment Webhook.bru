@@ -1,0 +1,35 @@
+meta {
+  name: Reject Invalid Webhook Signature
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/webhooks/payments/mock
+  body: json
+  auth: none
+}
+
+headers {
+  X-Idempotency-Key: evt-test-001
+  X-Webhook-Signature: sha256=0000000000000000000000000000000000000000000000000000000000000000
+}
+
+body:json {
+  {
+    "eventId": "evt-test-001",
+    "provider": "mock",
+    "paymentId": "external-{{saleId}}",
+    "merchantReference": "{{saleId}}",
+    "amount": 30000,
+    "currency": "IDR",
+    "status": "succeeded",
+    "occurredAt": "2026-01-01T10:00:00Z"
+  }
+}
+
+tests {
+  test("Rejects an invalid webhook signature", function() {
+    expect(res.status).to.equal(401);
+  });
+}

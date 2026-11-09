@@ -1,0 +1,11 @@
+meta {
+  name: Get Payment
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/payments/{{paymentId}}
+  body: none
+  auth: inherit
+}

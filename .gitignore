@@ -1,19 +1,49 @@
-# Environment & secrets
+# Local secrets and browser authentication state
 .env
-.env.local
-*.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.key
+*.pem
+.auth/
+**/.auth/
+**/storage-state*.json
+**/auth-state*.json
 
-# Golang
+# Bruno environment files may contain saved bearer tokens.
+backend/bruno/environments/*.bru
+!backend/bruno/environments/*.example.bru
+
+# Build outputs and dependency caches
+**/node_modules/
+**/__pycache__/
+**/*.pyc
+**/.next/
+**/*.tsbuildinfo
+**/coverage/
+**/playwright-report/
+**/test-results/
+backend/pos
 backend/bin/
-backend/vendor/
-*.exe
-*.test
+**/*.log
 
-# Next.js
-frontend/node_modules/
-frontend/.next/
-frontend/out/
-
-# OS/editor
+# Database exports contain customer and payment data
+backups/
+*.dump
+*.dump.*
+*.sql.gz
+*.backup
 .DS_Store
-.vscode/
+
+# Required source: override broad global lib/ and *.sql ignore rules.
+!backend/internal/lib/
+!backend/internal/lib/*.go
+!frontend/src/lib/
+!frontend/src/lib/*.ts
+!frontend/src/lib/server/
+!frontend/src/lib/server/*.ts
+!backend/internal/repo/*.sql
+!backend/migrations/
+!backend/migrations/*.sql

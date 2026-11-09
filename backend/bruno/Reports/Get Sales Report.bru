@@ -1,0 +1,18 @@
+meta {
+  name: Get Sales Report
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/reports/sales?businessLineId={{kedaiLineId}}&from=2026-01-01&to=2026-12-31&groupBy=day
+  body: none
+  auth: inherit
+}
+
+params:query {
+  businessLineId: {{kedaiLineId}}
+  from: 2026-01-01
+  to: 2026-12-31
+  groupBy: day
+}

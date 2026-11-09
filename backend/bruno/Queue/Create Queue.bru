@@ -1,0 +1,34 @@
+meta {
+  name: Create Queue
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/salon/queue?businessLineId={{salonLineId}}
+  body: json
+  auth: inherit
+}
+
+params:query {
+  businessLineId: {{salonLineId}}
+}
+
+headers {
+  X-Idempotency-Key: {{$guid}}
+}
+
+body:json {
+  {
+    "serviceIds": [
+      "{{serviceId}}"
+    ],
+    "note": "Prefer warm water"
+  }
+}
+
+script:post-response {
+  if (res.status === 201 && res.body.id) {
+    bru.setEnvVar("queueId", res.body.id);
+  }
+}

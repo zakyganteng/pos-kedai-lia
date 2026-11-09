@@ -1,0 +1,25 @@
+meta {
+  name: Create Movement
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/inventory/movements?businessLineId={{kedaiLineId}}
+  body: json
+  auth: inherit
+}
+
+params:query {
+  businessLineId: {{kedaiLineId}}
+}
+
+body:json {
+  {
+    "productId": "{{productId}}",
+    "type": "receive",
+    "quantityDelta": 50,
+    "reason": "Morning supplier restock",
+    "lowStockThreshold": 10
+  }
+}

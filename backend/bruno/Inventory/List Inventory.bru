@@ -1,0 +1,18 @@
+meta {
+  name: List Inventory
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/inventory?businessLineId={{kedaiLineId}}&page=1&limit=20
+  body: none
+  auth: inherit
+}
+
+params:query {
+  businessLineId: {{kedaiLineId}}
+  page: 1
+  limit: 20
+  ~lowStock: false
+}

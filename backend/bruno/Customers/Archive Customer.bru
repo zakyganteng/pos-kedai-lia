@@ -1,0 +1,11 @@
+meta {
+  name: Archive Customer
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{baseUrl}}/customers/{{customerId}}
+  body: none
+  auth: inherit
+}

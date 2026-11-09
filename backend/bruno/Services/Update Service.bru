@@ -1,0 +1,18 @@
+meta {
+  name: Update Service
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/services/{{serviceId}}
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": "Wash, Vitamin & Blow Dry",
+    "price": 85000
+  }
+}

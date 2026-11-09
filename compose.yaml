@@ -1,0 +1,78 @@
+# Local stack: PostgreSQL + Go API + Next.js POS. From project/: make dev
+# Frontend http://localhost:3000
+# API http://127.0.0.1:8080/api/v1, login owner@owner.com / owner-password-123
+# DB  127.0.0.1:5432, database pos, user postgres, password postgres (or POSTGRES_PASSWORD from .env)
+name: lia-pos
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: pos
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "pos"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: lia-pos-backend:local
+    # Migrate first (idempotent; creates the default owner on an empty users table), then serve.
+    entrypoint: ["/bin/sh", "-c", "/pos migrate && exec /pos serve"]
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/pos?sslmode=disable
+      APP_ENV: ${APP_ENV:-development}
+      SESSION_TTL: ${SESSION_TTL:-30m}
+      BUSINESS_TIMEZONE: ${BUSINESS_TIMEZONE:-Asia/Jakarta}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-disabled}
+      PAYMENT_BASE_URL: ${PAYMENT_BASE_URL:-}
+      PAYMENT_API_KEY: ${PAYMENT_API_KEY:-}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-}
+      NOTIFICATION_PROVIDER: ${NOTIFICATION_PROVIDER:-disabled}
+      NOTIFICATION_BASE_URL: ${NOTIFICATION_BASE_URL:-}
+      NOTIFICATION_API_KEY: ${NOTIFICATION_API_KEY:-}
+      NOTIFICATION_DESTINATION: ${NOTIFICATION_DESTINATION:-}
+      NOTIFICATION_TEMPLATE: ${NOTIFICATION_TEMPLATE:-}
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/v1/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: lia-pos-frontend:local
+    environment:
+      POS_API_URL: http://backend:8080/api/v1
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

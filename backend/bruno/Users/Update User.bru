@@ -1,0 +1,18 @@
+meta {
+  name: Update User
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/users/{{userId}}
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": "Cashier Kedai Updated",
+    "role": "admin"
+  }
+}

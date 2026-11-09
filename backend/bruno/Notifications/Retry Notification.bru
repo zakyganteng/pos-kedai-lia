@@ -1,0 +1,11 @@
+meta {
+  name: Retry Notification (requires configured provider)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/notifications/{{notificationId}}/retry
+  body: none
+  auth: inherit
+}
