@@ -1,0 +1,18 @@
+meta {
+  name: Patch Queue
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseUrl}}/salon/queue/{{queueId}}
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "status": "in_service",
+    "staffId": "{{staffId}}"
+  }
+}

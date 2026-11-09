@@ -1,0 +1,25 @@
+meta {
+  name: List Queue
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/salon/queue?businessLineId={{salonLineId}}&page=1&limit=20
+  body: none
+  auth: inherit
+}
+
+params:query {
+  businessLineId: {{salonLineId}}
+  page: 1
+  limit: 20
+  ~date: 2026-01-01
+  ~status: waiting
+}
+
+script:post-response {
+  if (res.status === 200 && res.body.data && res.body.data.length > 0) {
+    bru.setEnvVar("queueId", res.body.data[0].id);
+  }
+}

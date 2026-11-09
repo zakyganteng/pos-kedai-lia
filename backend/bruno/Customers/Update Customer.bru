@@ -1,0 +1,18 @@
+meta {
+  name: Update Customer
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/customers/{{customerId}}
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": "Budi Santoso VIP",
+    "phone": "+6281234567890"
+  }
+}

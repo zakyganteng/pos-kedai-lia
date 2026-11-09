@@ -1,0 +1,11 @@
+meta {
+  name: Archive Service
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{baseUrl}}/services/{{serviceId}}
+  body: none
+  auth: inherit
+}

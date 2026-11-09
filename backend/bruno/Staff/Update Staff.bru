@@ -1,0 +1,17 @@
+meta {
+  name: Update Staff
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/staff/{{staffId}}
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": "Rina Senior Stylist"
+  }
+}

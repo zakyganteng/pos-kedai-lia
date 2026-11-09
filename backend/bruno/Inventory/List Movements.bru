@@ -1,0 +1,20 @@
+meta {
+  name: List Movements
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/inventory/movements?businessLineId={{kedaiLineId}}&page=1&limit=20
+  body: none
+  auth: inherit
+}
+
+params:query {
+  businessLineId: {{kedaiLineId}}
+  page: 1
+  limit: 20
+  ~productId: {{productId}}
+  ~from: 2026-01-01
+  ~to: 2026-12-31
+}

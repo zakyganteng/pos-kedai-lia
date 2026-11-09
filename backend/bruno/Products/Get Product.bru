@@ -1,0 +1,11 @@
+meta {
+  name: Get Product
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/products/{{productId}}
+  body: none
+  auth: inherit
+}

@@ -1,0 +1,28 @@
+meta {
+  name: Create Customer
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/customers?businessLineId={{kedaiLineId}}
+  body: json
+  auth: inherit
+}
+
+params:query {
+  businessLineId: {{kedaiLineId}}
+}
+
+body:json {
+  {
+    "name": "Budi Santoso",
+    "phone": "081234567890"
+  }
+}
+
+script:post-response {
+  if (res.status === 201 && res.body.id) {
+    bru.setEnvVar("customerId", res.body.id);
+  }
+}

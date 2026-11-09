@@ -1,0 +1,17 @@
+meta {
+  name: Void Sale
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/sales/{{saleId}}/void
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "reason": "Customer requested cancellation"
+  }
+}

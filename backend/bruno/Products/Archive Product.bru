@@ -1,0 +1,11 @@
+meta {
+  name: Archive Product
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{baseUrl}}/products/{{productId}}
+  body: none
+  auth: inherit
+}

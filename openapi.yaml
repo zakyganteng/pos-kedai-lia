@@ -1,0 +1,1857 @@
+openapi: 3.1.0
+info:
+  title: Multi-Sector MSME POS API
+  version: 1.0.0
+  description: |
+    Design-first REST contract for Kedai Lia 287 and Lia Salon POS.
+    Amounts are integer IDR rupiah. Timestamps are RFC 3339 UTC.
+    All business-line resources must be authorized for the caller.
+    Payment provider is unconfirmed; provider-specific QRIS behavior is implemented
+    behind a POS-owned adapter. A standalone mock payment-gateway service is an
+    external test dependency and is specified separately in PRD-mock-payment-gateway.md.
+
+    ## Roles
+    `x-roles` on an operation lists the roles allowed to call it. Operations without
+    `x-roles` are open to every authenticated role (`owner`, `admin`, `cashier`) that
+    can access the target business line.
+
+    ## Idempotency
+    Mutations that carry `X-Idempotency-Key` replay the original outcome for the same
+    key. Reusing a key with a different request body returns 409.
+
+    ## Payment webhook boundary
+    `POST /webhooks/payments/{provider}` is the only unauthenticated write surface.
+    The POS never trusts a browser-reported payment result. The provider adapter
+    verifies an HMAC-SHA256 signature over the exact raw request bytes and maps the
+    payload to the normalized `PaymentWebhookEvent` before any payment state change.
+    See `PaymentWebhookEvent` and the operation description for the header names,
+    signature encoding and the mock-gateway test boundary.
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development
+  - url: https://{host}/api/v1
+    description: Deployed environment
+    variables:
+      host:
+        default: api.example.invalid
+tags:
+  - name: Auth
+    description: Session login, logout and current-user identity.
+  - name: Business lines
+    description: Business lines the authenticated user may operate.
+  - name: Catalog
+    description: Products for the food and beverage line and services for the salon line.
+  - name: Categories
+    description: Editable product categories, scoped to a food and beverage line.
+  - name: Customers and staff
+    description: Customer records and salon staff records per business line.
+  - name: Inventory
+    description: Stock levels, reservations and the append-only stock movement ledger.
+  - name: Sales and payments
+    description: Checkout, payment state, receipts and provider reconciliation.
+  - name: Webhooks
+    description: Unauthenticated, signature-verified payment provider callbacks.
+  - name: Notifications
+    description: WhatsApp receipt delivery history and retries.
+  - name: Reports
+    description: Confirmed-sales aggregation, inventory reporting and CSV export.
+  - name: Salon queue
+    description: Daily salon walk-in queue numbering and status flow.
+  - name: Users
+    description: Owner-only user account administration.
+  - name: Integrations
+    description: Configuration status of the payment and notification providers.
+  - name: Health
+    description: Unauthenticated liveness and readiness probes.
+security:
+  - bearerAuth: []
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Authenticate a user
+      description: >-
+        Local development login, created by the first migration while the users
+        table is empty: `owner@owner.com` / `owner-password-123`. Change it
+        before real use.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 1 }
+            example:
+              email: owner@owner.com
+              password: owner-password-123
+      responses:
+        '200':
+          description: Authenticated session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSession' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Revoke current session
+      responses:
+        '204': { description: Session revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/me:
+    get:
+      tags: [Auth]
+      operationId: getCurrentUser
+      summary: Get current user and accessible business lines
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CurrentUser' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /business-lines:
+    get:
+      tags: [Business lines]
+      operationId: listBusinessLines
+      summary: List business lines accessible to caller
+      responses:
+        '200':
+          description: Accessible business lines
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/BusinessLine' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /products:
+    get:
+      tags: [Catalog]
+      operationId: listProducts
+      summary: List products in an accessible business line
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Active'
+        - $ref: '#/components/parameters/CategoryIdFilter'
+        - $ref: '#/components/parameters/Uncategorized'
+      responses:
+        '200':
+          description: Product page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Catalog]
+      operationId: createProduct
+      summary: Create a product
+      x-roles: [owner, admin]
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductInput' }
+      responses:
+        '201':
+          description: Product created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /products/{productId}:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+    get:
+      tags: [Catalog]
+      operationId: getProduct
+      summary: Get product details
+      responses:
+        '200':
+          description: Product
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Catalog]
+      operationId: updateProduct
+      summary: Update product
+      x-roles: [owner, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductPatch' }
+      responses:
+        '200':
+          description: Product updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Catalog]
+      operationId: archiveProduct
+      summary: Archive product; historical sale snapshots remain
+      x-roles: [owner, admin]
+      responses:
+        '204': { description: Product archived }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /categories:
+    get:
+      tags: [Categories]
+      operationId: listCategories
+      summary: List product categories in an accessible food and beverage line
+      description: 'Readable by every role assigned to the line, cashiers included. Only food and beverage lines have categories; a salon line is rejected with 400. Ordered by name.'
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Active'
+        - name: search
+          in: query
+          description: Case-insensitive substring match on the category name.
+          schema: { type: string, maxLength: 100 }
+      responses:
+        '200':
+          description: Category page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CategoryPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Categories]
+      operationId: createCategory
+      summary: Create a product category
+      description: 'Names are unique per business line, compared case-insensitively after trimming and collapsing internal whitespace. Archived categories keep their name reserved.'
+      x-roles: [owner, admin]
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CategoryInput' }
+      responses:
+        '201':
+          description: Category created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Category' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /categories/{categoryId}:
+    parameters:
+      - $ref: '#/components/parameters/CategoryId'
+    get:
+      tags: [Categories]
+      operationId: getCategory
+      summary: Get category details
+      description: 'Archived categories are returned with 200 so they can be reviewed and restored.'
+      responses:
+        '200':
+          description: Category
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Category' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Categories]
+      operationId: updateCategory
+      summary: Rename, archive or restore a category
+      description: 'Setting `active` to false archives the category and is refused with 409 while any product is still assigned to it, counting archived products too. Setting `active` back to true restores it.'
+      x-roles: [owner, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CategoryPatch' }
+      responses:
+        '200':
+          description: Category updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Category' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Categories]
+      operationId: archiveCategory
+      summary: Archive a category; it is never physically deleted
+      description: 'Equivalent to patching `active` to false. Refused with 409 while any product is still assigned, including archived products.'
+      x-roles: [owner, admin]
+      responses:
+        '204': { description: Category archived }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /services:
+    get:
+      tags: [Catalog]
+      operationId: listServices
+      summary: List salon services
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Active'
+      responses:
+        '200':
+          description: Service page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServicePage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Catalog]
+      operationId: createService
+      summary: Create salon service
+      x-roles: [owner, admin]
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceInput' }
+      responses:
+        '201':
+          description: Service created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Service' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /customers:
+    get:
+      tags: [Customers and staff]
+      operationId: listCustomers
+      summary: Search customers
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Active'
+      responses:
+        '200':
+          description: Customer page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Customers and staff]
+      operationId: createCustomer
+      summary: Create customer
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerInput' }
+      responses:
+        '201':
+          description: Customer created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /staff:
+    post:
+      tags: [Customers and staff]
+      operationId: createStaff
+      summary: Create a staff member
+      x-roles: [owner, admin]
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/StaffInput' } } }
+      responses:
+        '201':
+          description: Staff created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Staff' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    get:
+      tags: [Customers and staff]
+      operationId: listStaff
+      summary: List staff for a business line
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Active'
+      responses:
+        '200':
+          description: Staff page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StaffPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /inventory:
+    get:
+      tags: [Inventory]
+      operationId: listInventory
+      summary: List product stock levels
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: lowStock
+          in: query
+          description: When true, only products whose available quantity is at or below their low-stock threshold.
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: Inventory page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InventoryPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /inventory/movements:
+    get:
+      tags: [Inventory]
+      operationId: listInventoryMovements
+      summary: List stock ledger movements
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: productId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Movement page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InventoryMovementPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Inventory]
+      operationId: createInventoryMovement
+      summary: Receive or adjust stock
+      description: 'Type `receive` requires a positive quantityDelta and is allowed for owner and admin. Type `adjustment` may be negative and is restricted to owner.'
+      x-roles: [owner, admin]
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InventoryMovementInput' }
+      responses:
+        '201':
+          description: Movement recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InventoryMovement' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /sales:
+    get:
+      tags: [Sales and payments]
+      operationId: listSales
+      summary: List sales
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/SaleStatus' }
+      responses:
+        '200':
+          description: Sales page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SalePage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Sales and payments]
+      operationId: createSale
+      summary: Create a sale and initiate cash or QRIS payment
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateSaleRequest' }
+      responses:
+        '502': { description: 'External intent unresolved. Retry same idempotency key; background recovery also retries automatically. Reservations remain held until authoritative expiry or verified terminal event.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '503': { description: Payment provider disabled, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '201':
+          description: Sale created; QRIS may remain pending
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sale' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /sales/{saleId}:
+    parameters:
+      - $ref: '#/components/parameters/SaleId'
+    get:
+      tags: [Sales and payments]
+      operationId: getSale
+      summary: Get sale details and receipt data
+      responses:
+        '200':
+          description: Sale detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sale' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /sales/{saleId}/void:
+    parameters:
+      - $ref: '#/components/parameters/SaleId'
+    post:
+      tags: [Sales and payments]
+      operationId: voidSale
+      summary: Void a confirmed sale
+      description: |
+        Admin and owner only. Voids a previously paid/confirmed sale, releases revenue from reports,
+        and automatically returns any stock-tracked items to on-hand inventory with an audited movement.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 300
+                  description: Reason for voiding the transaction.
+      responses:
+        '200':
+          description: Sale successfully voided
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sale' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /payments/{paymentId}:
+    get:
+      tags: [Sales and payments]
+      operationId: getPayment
+      summary: Get payment state
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Payment state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Payment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /webhooks/payments/{provider}:
+    post:
+      tags: [Webhooks]
+      operationId: receivePaymentWebhook
+      summary: Receive payment provider event
+      description: |
+        Unauthenticated provider callback. `{provider}` must equal the provider name the
+        POS adapter is configured with (`mock` in development); any other value is rejected
+        with 401 before the body is parsed.
+
+        Authentication is an HMAC-SHA256 signature over the exact raw request bytes, keyed
+        with the shared webhook secret, sent in the `X-Webhook-Signature` header as
+        lowercase hex. The optional `sha256=` prefix is accepted and stripped. The signature
+        is verified before any parsing or state change, and raw secrets/signatures are never
+        logged.
+
+        `X-Idempotency-Key` is required and must equal the body `eventId`. Redelivery of a
+        byte-identical body returns 200 with outcome `duplicate`. Redelivery of the same
+        `eventId` with different bytes returns 409.
+
+        The body is the normalized `PaymentWebhookEvent`; unknown fields, trailing values and
+        duplicate object keys are rejected. The POS never trusts a browser-provided payment
+        result. The separately specified mock gateway may call this endpoint for
+        development/testing only; it is not part of this POS API service and carries no
+        production-provider compatibility claim.
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          description: Configured provider adapter name; `mock` in development.
+          schema: { type: string, minLength: 1 }
+        - name: X-Idempotency-Key
+          in: header
+          required: true
+          description: Must equal the body `eventId`; stable across provider retries.
+          schema: { type: string, minLength: 1, maxLength: 200 }
+        - name: X-Webhook-Signature
+          in: header
+          required: true
+          description: 'Lowercase hex HMAC-SHA256 of the exact raw request body, optionally prefixed with `sha256=`.'
+          schema: { type: string, pattern: '^(sha256=)?[0-9a-fA-F]{64}$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymentWebhookEvent' }
+      responses:
+        '200':
+          description: Event accepted, already processed, or retained for automatic recovery
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [outcome]
+                properties:
+                  outcome:
+                    type: string
+                    enum: [applied, duplicate, duplicate_state, unresolved]
+                    description: '`duplicate` is a byte-identical redelivery; `duplicate_state` is a new event matching the already recorded payment state; `unresolved` is retained and reprocessed by background recovery.'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: Unknown provider or invalid signature
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: 'Event retained but not applied: unmatched sale, reference/amount/currency mismatch, stale or future timestamp, or a conflicting terminal transition.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /notifications:
+    get:
+      tags: [Notifications]
+      operationId: listNotifications
+      summary: View notification delivery history
+      x-roles: [owner, admin]
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/NotificationStatus' }
+      responses:
+        '200':
+          description: Notification page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /notifications/{notificationId}/retry:
+    post:
+      tags: [Notifications]
+      operationId: retryNotification
+      summary: Retry failed WhatsApp notification
+      description: 'Disabled provider returns 503 without enqueuing fake delivery. Retries preserve the logical notification UUID, persisted destination and rendered message.'
+      x-roles: [owner, admin]
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '202':
+          description: Retry enqueued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, const: queued }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { description: Notification provider is disabled, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /reports/sales:
+    get:
+      tags: [Reports]
+      operationId: getSalesReport
+      summary: Aggregate confirmed sales for a date range
+      description: 'Inclusive business-timezone date range of 1 to 366 days. Cashiers may only use groupBy `day` or `paymentMethod`; `item` and `staff` require owner or admin.'
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: groupBy
+          in: query
+          schema:
+            type: string
+            enum: [day, paymentMethod, item, staff]
+            default: day
+      responses:
+        '200':
+          description: Sales aggregation; pending/failed payments excluded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SalesReport' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /reports/inventory:
+    get:
+      tags: [Reports]
+      operationId: getInventoryReport
+      summary: Current inventory and low-stock report
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+        - name: lowStock
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Inventory report
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/InventoryItem' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /reports/sales.csv:
+    get:
+      tags: [Reports]
+      operationId: exportSalesCsv
+      summary: Export filtered sales as CSV
+      x-roles: [owner, admin]
+      description: 'Headers saleId,businessLineId,createdAt,paymentMethod,total. Confirmed sales only, inclusive business-timezone date filters. If more than 10000 match, return 413 with no partial export; choose a narrower date range.'
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '413': { description: More than 10000 matching sales; no partial export, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '200':
+          description: UTF-8 CSV of confirmed sales
+          content:
+            text/csv:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /salon/queue:
+    get:
+      tags: [Salon queue]
+      operationId: listQueueEntries
+      summary: List salon queue for a business date
+      description: 'Results are paginated and ordered by queue number ascending. A busy day can exceed one page; read `pagination` and request further pages rather than assuming a single page holds the whole day.'
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: date
+          in: query
+          description: Business-timezone date; defaults to the current business date.
+          schema: { type: string, format: date }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/QueueStatus' }
+      responses:
+        '200':
+          description: Queue entry page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QueueEntryPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Salon queue]
+      operationId: createQueueEntry
+      summary: Add salon walk-in to queue
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QueueEntryInput' }
+      responses:
+        '201':
+          description: Queue entry created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QueueEntry' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /salon/queue/{queueEntryId}:
+    patch:
+      tags: [Salon queue]
+      operationId: updateQueueEntry
+      summary: Change queue status or link a completed sale
+      description: 'Allowed transitions are waiting to in_service or cancelled, and in_service to completed or cancelled. A saleId may only be linked once the entry is completed, and the link is immutable once set.'
+      parameters:
+        - name: queueEntryId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QueueEntryPatch' }
+      responses:
+        '200':
+          description: Queue entry updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QueueEntry' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /services/{serviceId}:
+    parameters:
+      - { name: serviceId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Catalog]
+      operationId: getService
+      summary: Get salon service details
+      responses:
+        '200': { description: Service, content: { application/json: { schema: { $ref: '#/components/schemas/Service' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Catalog]
+      operationId: updateService
+      summary: Update salon service
+      x-roles: [owner, admin]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ServicePatch' } } }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Service' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Catalog]
+      operationId: archiveService
+      summary: Archive salon service; historical sale snapshots remain
+      x-roles: [owner, admin]
+      responses:
+        '204': { description: Archived }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /customers/{customerId}:
+    parameters:
+      - { name: customerId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Customers and staff]
+      operationId: getCustomer
+      summary: Get customer details
+      responses:
+        '200': { description: Customer, content: { application/json: { schema: { $ref: '#/components/schemas/Customer' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Customers and staff]
+      operationId: updateCustomer
+      summary: Update customer
+      x-roles: [owner, admin]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CustomerPatch' } } }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Customer' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Customers and staff]
+      operationId: archiveCustomer
+      summary: Archive customer
+      x-roles: [owner, admin]
+      responses:
+        '204': { description: Archived }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /staff/{staffId}:
+    parameters:
+      - { name: staffId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Customers and staff]
+      operationId: getStaff
+      summary: Get staff details
+      responses:
+        '200': { description: Staff, content: { application/json: { schema: { $ref: '#/components/schemas/Staff' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Customers and staff]
+      operationId: updateStaff
+      summary: Update staff
+      x-roles: [owner, admin]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/StaffPatch' } } }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Staff' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Customers and staff]
+      operationId: archiveStaff
+      summary: Archive staff; historical sale snapshots remain
+      x-roles: [owner, admin]
+      responses:
+        '204': { description: Archived }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /users:
+    get:
+      tags: [Users]
+      operationId: listUsers
+      summary: List user accounts
+      description: 'Search matches name or email, case-insensitive substring.'
+      x-roles: [owner]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Search'
+      responses:
+        '200': { description: User page, content: { application/json: { schema: { $ref: '#/components/schemas/UserPage' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Users]
+      operationId: createUser
+      summary: Create a user account
+      x-roles: [owner]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UserInput' } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/CurrentUser' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /users/{userId}:
+    parameters:
+      - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Users]
+      operationId: getUser
+      summary: Get a user account
+      x-roles: [owner]
+      responses:
+        '200': { description: User, content: { application/json: { schema: { $ref: '#/components/schemas/CurrentUser' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Users]
+      operationId: updateUser
+      summary: Update a user account
+      description: 'Any successful update revokes that user''s active sessions. The last active owner cannot be demoted or deactivated.'
+      x-roles: [owner]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UserPatch' } } }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/CurrentUser' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Users]
+      operationId: disableUser
+      summary: Disable a user account
+      description: 'Deactivates the account rather than deleting it. The last active owner cannot be disabled.'
+      x-roles: [owner]
+      responses:
+        '204': { description: Disabled and sessions revoked }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /integrations:
+    get:
+      tags: [Integrations]
+      operationId: getIntegrations
+      summary: Report payment and notification configuration status
+      x-roles: [owner]
+      responses:
+        '200':
+          description: Configuration status only, not connectivity or vendor certification
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [payment, notification, productionReady]
+                properties:
+                  payment: { $ref: '#/components/schemas/IntegrationStatus' }
+                  notification: { $ref: '#/components/schemas/IntegrationStatus' }
+                  productionReady: { type: boolean, const: false }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /payments/reconciliation:
+    get:
+      tags: [Sales and payments]
+      operationId: listReconciliation
+      summary: List sanitized payment provider events
+      description: 'Admins see events matched to the requested business line. Owners additionally see unmatched events that could not be attributed to any line. `search` and `outcome` are applied server-side before pagination, so `pagination.total` reflects the filtered result set.'
+      x-roles: [owner, admin]
+      parameters:
+        - $ref: '#/components/parameters/BusinessLineId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: search
+          in: query
+          description: Case-insensitive substring match against eventId, saleId and providerPaymentId.
+          schema: { type: string, maxLength: 100 }
+        - name: outcome
+          in: query
+          description: Filter by recorded disposition. An unrecognised value is rejected with 400.
+          schema: { $ref: '#/components/schemas/ReconciliationOutcome' }
+      responses:
+        '200': { description: Sanitized payment event page, content: { application/json: { schema: { $ref: '#/components/schemas/ReconciliationPage' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /health/live:
+    get:
+      tags: [Health]
+      operationId: getLiveness
+      summary: Process liveness check
+      security: []
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, const: alive }
+  /health/ready:
+    get:
+      tags: [Health]
+      operationId: getReadiness
+      summary: Readiness check including database connectivity and schema version
+      security: []
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, const: ready }
+        '503':
+          description: Database unavailable or schema outdated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Opaque revocable session token (30 minute default; no refresh)
+  parameters:
+    BusinessLineId:
+      name: businessLineId
+      in: query
+      required: true
+      description: Must identify a line accessible to the authenticated user.
+      schema: { type: string, format: uuid }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 1000000, default: 1 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Search:
+      name: search
+      in: query
+      description: Case-insensitive substring match on name, and on SKU for products.
+      schema: { type: string, maxLength: 100 }
+    Active:
+      name: active
+      in: query
+      description: Filter by archived state; omit to return both active and archived records.
+      schema: { type: boolean }
+    IdempotencyKey:
+      name: X-Idempotency-Key
+      in: header
+      required: true
+      description: Unique per logical mutation; repeated requests return original outcome.
+      schema: { type: string, minLength: 1, maxLength: 200 }
+    ProductId:
+      name: productId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CategoryId:
+      name: categoryId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CategoryIdFilter:
+      name: categoryId
+      in: query
+      description: 'Return only products assigned to this category. Mutually exclusive with `uncategorized`; sending both is rejected with 400.'
+      schema: { type: string, format: uuid }
+    Uncategorized:
+      name: uncategorized
+      in: query
+      description: '`true` returns only products with no category, `false` only products that have one. Mutually exclusive with `categoryId`. Omit both to return every product regardless of assignment.'
+      schema: { type: boolean }
+    SaleId:
+      name: saleId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    IntegrationStatus:
+      type: object
+      required: [provider, configured, productionSupported]
+      properties:
+        provider: { type: string }
+        configured: { type: boolean }
+        productionSupported: { type: boolean, const: false }
+    UserInput:
+      type: object
+      additionalProperties: false
+      required: [name, email, password, role, businessLineIds]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 12, maxLength: 72 }
+        role: { $ref: '#/components/schemas/Role' }
+        active: { type: boolean, default: true }
+        businessLineIds: { type: array, minItems: 1, maxItems: 2, uniqueItems: true, items: { type: string, format: uuid } }
+    UserPatch:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 12, maxLength: 72 }
+        role: { $ref: '#/components/schemas/Role' }
+        active: { type: boolean }
+        businessLineIds: { type: array, minItems: 1, maxItems: 2, uniqueItems: true, items: { type: string, format: uuid } }
+    UserPage:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/CurrentUser' } }
+    ServicePatch:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        description: { type: [string, 'null'], maxLength: 1000 }
+        durationMinutes: { type: [integer, 'null'], minimum: 1, maximum: 1440 }
+        price: { type: integer, minimum: 0, maximum: 1000000000000 }
+        active: { type: boolean }
+    CustomerPatch:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        phone: { type: [string, 'null'], maxLength: 40 }
+        active: { type: boolean }
+    StaffInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        active: { type: boolean, default: true }
+    StaffPatch:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        active: { type: boolean }
+    ReconciliationOutcome:
+      type: string
+      enum: [applied, duplicate_state, mismatch, terminal_conflict, unmatched, stale, unresolved]
+      description: |
+        Disposition recorded for an authenticated provider event.
+        `applied` changed payment state. `duplicate_state` matched the state already recorded.
+        `mismatch` failed reference, amount or currency checks. `terminal_conflict` arrived after a
+        terminal state. `unmatched` had no matching sale. `stale` was outside the accepted time window
+        and is retained but can never alter payment state. `unresolved` metadata is recovered and
+        reprocessed automatically.
+    Reconciliation:
+      type: object
+      required: [id, eventId, saleId, outcome, providerStatus, providerPaymentId, amount, currency, occurredAt, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        eventId: { type: string }
+        saleId: { type: string, description: 'Merchant reference supplied by the provider; matches a POS sale id unless the outcome is unmatched.' }
+        outcome: { $ref: '#/components/schemas/ReconciliationOutcome' }
+        providerPaymentId: { type: string, description: Sanitized external payment reference }
+        providerStatus: { type: string, enum: [succeeded, failed, expired] }
+        amount: { type: integer }
+        currency: { type: string }
+        occurredAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+    ReconciliationPage:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Reconciliation' } }
+    Role:
+      type: string
+      enum: [owner, admin, cashier]
+    AuthSession:
+      type: object
+      required: [accessToken, tokenType, expiresAt, user]
+      properties:
+        accessToken: { type: string }
+        tokenType: { type: string, const: Bearer }
+        expiresAt: { type: string, format: date-time }
+        user: { $ref: '#/components/schemas/CurrentUser' }
+    CurrentUser:
+      type: object
+      required: [id, name, email, role, active, businessLines]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/Role' }
+        active: { type: boolean }
+        businessLines:
+          type: array
+          items: { $ref: '#/components/schemas/BusinessLine' }
+    BusinessLine:
+      type: object
+      required: [id, code, name, type]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string, enum: [kedai-lia-287, lia-salon] }
+        name: { type: string }
+        type: { type: string, enum: [food_beverage, salon] }
+    Pagination:
+      type: object
+      required: [page, limit, total, totalPages]
+      properties:
+        page: { type: integer, minimum: 1 }
+        limit: { type: integer, minimum: 1, maximum: 100 }
+        total: { type: integer, minimum: 0 }
+        totalPages: { type: integer, minimum: 0 }
+    Product:
+      type: object
+      required: [id, businessLineId, sku, name, unit, price, stockTracked, active, categoryId, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        businessLineId: { type: string, format: uuid }
+        sku: { type: string }
+        name: { type: string }
+        unit: { type: string }
+        price: { type: integer, minimum: 0, description: IDR rupiah }
+        stockTracked: { type: boolean }
+        active: { type: boolean }
+        categoryId: { type: [string, 'null'], format: uuid, description: 'Always present; null when the product belongs to no category.' }
+        stockOnHand: { type: integer, minimum: 0, readOnly: true }
+        reservedQuantity: { type: integer, minimum: 0, readOnly: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ProductInput:
+      type: object
+      additionalProperties: false
+      required: [sku, name, unit, price, stockTracked]
+      properties:
+        sku: { type: string, minLength: 1, maxLength: 80 }
+        name: { type: string, minLength: 1, maxLength: 160 }
+        unit: { type: string, minLength: 1, maxLength: 40 }
+        price: { type: integer, minimum: 0, maximum: 1000000000000 }
+        stockTracked: { type: boolean }
+        categoryId: { type: [string, 'null'], format: uuid, description: 'Optional. Must be an active category in the same business line: 404 when unknown, 403 when it belongs to another line, 409 when archived.' }
+    ProductPatch:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        sku: { type: string, minLength: 1, maxLength: 80 }
+        name: { type: string, minLength: 1, maxLength: 160 }
+        unit: { type: string, minLength: 1, maxLength: 40 }
+        price: { type: integer, minimum: 0, maximum: 1000000000000 }
+        stockTracked: { type: boolean, description: 'Can only change while stock on hand and reservations are both zero, otherwise 409.' }
+        active: { type: boolean }
+        categoryId: { type: [string, 'null'], format: uuid, description: 'Assigns the product to a category, or detaches it when null. Must be an active category in the same business line: 404 when unknown, 403 when it belongs to another line, 409 when archived.' }
+    Category:
+      type: object
+      required: [id, businessLineId, name, active, productCount, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        businessLineId: { type: string, format: uuid }
+        name: { type: string, description: 'Stored trimmed with internal whitespace collapsed to single spaces.' }
+        active: { type: boolean, description: 'False once archived. Archived categories stay readable and can be restored.' }
+        productCount: { type: integer, minimum: 0, readOnly: true, description: 'Products currently assigned to this category, counting archived products as well as active ones.' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CategoryInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160, description: 'Unique per business line, case-insensitively, after trimming and collapsing whitespace. Archived names stay reserved.' }
+    CategoryPatch:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        active: { type: boolean, description: 'False archives the category and is refused with 409 while any product is still assigned. True restores it.' }
+    Service:
+      type: object
+      required: [id, businessLineId, name, price, active, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        businessLineId: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: [string, 'null'] }
+        durationMinutes: { type: [integer, 'null'], minimum: 1 }
+        price: { type: integer, minimum: 0 }
+        active: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ServiceInput:
+      type: object
+      additionalProperties: false
+      required: [name, price]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        description: { type: [string, 'null'], maxLength: 1000 }
+        durationMinutes: { type: [integer, 'null'], minimum: 1, maximum: 1440 }
+        price: { type: integer, minimum: 0, maximum: 1000000000000 }
+        active: { type: boolean, default: true }
+    Customer:
+      type: object
+      required: [id, businessLineId, name, active, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        businessLineId: { type: string, format: uuid }
+        name: { type: string }
+        phone: { type: [string, 'null'], description: 'Normalized to E.164; omitted when never set. Unique per business line.' }
+        active: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CustomerInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 160 }
+        phone: { type: [string, 'null'], maxLength: 40, description: 'Indonesian local or international number; normalized to E.164 before storage.' }
+        active: { type: boolean, default: true }
+    Staff:
+      type: object
+      required: [id, businessLineId, name, active, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        businessLineId: { type: string, format: uuid }
+        name: { type: string }
+        active: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    InventoryItem:
+      type: object
+      required: [productId, productName, quantity, reservedQuantity, availableQuantity, lowStockThreshold]
+      properties:
+        productId: { type: string, format: uuid }
+        productName: { type: string }
+        quantity: { type: integer, description: Physical on-hand stock including QR reservations }
+        reservedQuantity: { type: integer, minimum: 0 }
+        availableQuantity: { type: integer, description: On-hand minus reservations }
+        lowStockThreshold: { type: integer, minimum: 0 }
+    InventoryMovement:
+      type: object
+      required: [id, productId, type, quantityDelta, reason, actorId, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        productId: { type: string, format: uuid }
+        type: { type: string, enum: [receive, adjustment, sale, reversal] }
+        quantityDelta: { type: integer, not: { const: 0 } }
+        reason: { type: string }
+        actorId: { type: string, format: uuid }
+        saleId: { type: [string, 'null'], format: uuid }
+        createdAt: { type: string, format: date-time }
+    InventoryMovementInput:
+      type: object
+      additionalProperties: false
+      required: [productId, type, quantityDelta, reason]
+      properties:
+        productId: { type: string, format: uuid, description: Must be a stock-tracked product in the requested business line. }
+        type: { type: string, enum: [receive, adjustment], description: '`adjustment` requires the owner role.' }
+        quantityDelta: { type: integer, minimum: -1000000000, maximum: 1000000000, not: { const: 0 }, description: 'Must be positive when type is `receive`. Resulting on-hand stock may not drop below reservations or exceed 1000000000.' }
+        reason: { type: string, minLength: 1, maxLength: 300 }
+        lowStockThreshold: { type: integer, minimum: 0, maximum: 1000000000 }
+    SaleStatus:
+      type: string
+      enum: [pending_payment, paid, cancelled, voided]
+      description: 'pending_payment, paid, cancelled, or voided by an authorized admin.'
+    PaymentStatus:
+      type: string
+      enum: [pending, confirmed, failed, expired, voided]
+      description: 'Pending is the initial non-terminal state; confirmed can transition to voided by an admin.'
+    PaymentMethod:
+      type: string
+      enum: [cash, qris]
+    SaleItemInput:
+      type: object
+      additionalProperties: false
+      required: [itemType, itemId, quantity]
+      properties:
+        itemType: { type: string, enum: [product, service] }
+        itemId: { type: string, format: uuid }
+        quantity: { type: integer, minimum: 1, maximum: 1000 }
+        staffId: { type: string, format: uuid, description: Only salon services may carry a staff attribution. }
+    SaleItem:
+      type: object
+      required: [id, itemType, itemId, displayName, unitPrice, quantity, lineTotal, stockTracked]
+      properties:
+        id: { type: string, format: uuid }
+        itemType: { type: string, enum: [product, service] }
+        itemId: { type: string, format: uuid }
+        displayName: { type: string, description: Immutable name snapshot }
+        unitPrice: { type: integer, minimum: 0 }
+        quantity: { type: integer, minimum: 1 }
+        lineTotal: { type: integer, minimum: 0 }
+        staffId: { type: [string, 'null'], format: uuid }
+        stockTracked: { type: boolean, description: Stock-tracking snapshot used to settle reservations. }
+    CreateSaleRequest:
+      type: object
+      additionalProperties: false
+      required: [items, paymentMethod]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: '#/components/schemas/SaleItemInput' }
+          description: 'Each itemId may appear once; combine duplicate quantities before checkout.'
+        customerId: { type: [string, 'null'], format: uuid }
+        paymentMethod: { $ref: '#/components/schemas/PaymentMethod' }
+        cashReceived: { type: integer, minimum: 0, maximum: 1000000000000, description: 'Required for cash and must be at least the sale total; rejected for qris. IDR rupiah.' }
+    Sale:
+      type: object
+      required: [id, businessLineId, cashierId, status, items, subtotal, total, payment, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        businessLineId: { type: string, format: uuid }
+        customerId: { type: [string, 'null'], format: uuid }
+        cashierId: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/SaleStatus' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SaleItem' }
+        subtotal: { type: integer, minimum: 0 }
+        total: { type: integer, minimum: 0 }
+        cashReceived: { type: [integer, 'null'], minimum: 0 }
+        changeDue: { type: [integer, 'null'], minimum: 0 }
+        payment: { $ref: '#/components/schemas/Payment' }
+        createdAt: { type: string, format: date-time }
+    Payment:
+      type: object
+      required: [id, saleId, method, status, amount, currency, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        saleId: { type: string, format: uuid }
+        method: { $ref: '#/components/schemas/PaymentMethod' }
+        status: { $ref: '#/components/schemas/PaymentStatus' }
+        amount: { type: integer, minimum: 0 }
+        currency: { type: string, const: IDR }
+        gatewayReference: { type: [string, 'null'] }
+        qrContent: { type: [string, 'null'], description: 'Opaque QR payload from external provider, render as QR not image URL. Mock is non-production and visibly label it test-only. No fabricated local payload.' }
+        expiresAt: { type: [string, 'null'], format: date-time }
+        confirmedAt: { type: [string, 'null'], format: date-time }
+        intentAttempts: { type: integer, minimum: 0 }
+        nextIntentAt: { type: [string, 'null'], format: date-time }
+        intentError: { type: [string, 'null'], description: Sanitized recovery error code }
+        createdAt: { type: string, format: date-time }
+    PaymentWebhookEvent:
+      type: object
+      additionalProperties: false
+      required: [eventId, paymentId, merchantReference, amount, currency, status, occurredAt]
+      description: |
+        Normalized payment event produced by a provider adapter. Unknown fields are rejected, so any
+        provider-specific payload must be mapped to exactly this shape before delivery.
+      properties:
+        eventId:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Stable across provider retries and must equal the X-Idempotency-Key header.
+        paymentId:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Provider payment reference; must equal the gatewayReference recorded on the sale.
+        merchantReference:
+          type: string
+          format: uuid
+          description: POS sale id supplied when the intent was created.
+        amount:
+          type: integer
+          minimum: 0
+          maximum: 1000000000000
+          description: Must equal the sale total in IDR rupiah.
+        currency:
+          type: string
+          minLength: 1
+          description: Must be IDR to apply; any other value is retained as a mismatch.
+        status:
+          type: string
+          enum: [succeeded, failed, expired]
+          description: '`succeeded` maps to payment status `confirmed`; `failed` and `expired` cancel the sale and release reservations.'
+        occurredAt:
+          type: string
+          format: date-time
+          description: 'Must be within the last 24 hours and no more than 5 minutes in the future, otherwise the event is retained as stale.'
+        provider:
+          type: string
+          minLength: 1
+          maxLength: 40
+          description: |
+            Optional provider name emitted by the mock gateway. When present it must equal the
+            configured adapter name and the {provider} path segment, otherwise the event is rejected.
+            Omitted by earlier recorded events, which remain replayable.
+    NotificationStatus:
+      type: string
+      enum: [queued, sent, failed]
+    Notification:
+      type: object
+      required: [id, saleId, status, attemptCount, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        saleId: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/NotificationStatus' }
+        destinationMasked: { type: [string, 'null'] }
+        attemptCount: { type: integer, minimum: 0 }
+        lastError: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+    SalesReport:
+      type: object
+      required: [businessLineId, from, to, totalSales, transactionCount, groups, timezone]
+      properties:
+        businessLineId: { type: string, format: uuid }
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        totalSales: { type: integer, minimum: 0 }
+        transactionCount: { type: integer, minimum: 0 }
+        timezone: { type: string, description: 'IANA business timezone the inclusive date range was resolved in.' }
+        groups:
+          type: array
+          items:
+            type: object
+            required: [key, amount, count]
+            properties:
+              key: { type: string }
+              amount: { type: integer, minimum: 0 }
+              count: { type: integer, minimum: 0 }
+    QueueStatus:
+      type: string
+      enum: [waiting, in_service, completed, cancelled]
+    QueueEntryInput:
+      type: object
+      additionalProperties: false
+      required: [serviceIds]
+      properties:
+        customerId: { type: [string, 'null'], format: uuid }
+        serviceIds:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        staffId: { type: [string, 'null'], format: uuid }
+        note: { type: [string, 'null'], maxLength: 300 }
+    QueueEntryPatch:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        status: { $ref: '#/components/schemas/QueueStatus' }
+        staffId: { type: [string, 'null'], format: uuid, description: Immutable once the entry is completed. }
+        saleId: { type: string, format: uuid, description: 'Only settable on a completed entry, must reference a paid sale in the same line covering every requested service, and is immutable once set.' }
+    QueueEntry:
+      type: object
+      required: [id, businessLineId, queueNumber, date, serviceIds, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        businessLineId: { type: string, format: uuid }
+        queueNumber: { type: integer, minimum: 1, description: Sequential per business line and business date. }
+        date: { type: string, format: date, description: Business-timezone date the queue number belongs to. }
+        customerId: { type: [string, 'null'], format: uuid }
+        serviceIds:
+          type: array
+          items: { type: string, format: uuid }
+        staffId: { type: [string, 'null'], format: uuid }
+        saleId: { type: [string, 'null'], format: uuid }
+        note: { type: [string, 'null'] }
+        status: { $ref: '#/components/schemas/QueueStatus' }
+        createdAt: { type: string, format: date-time }
+        startedAt: { type: [string, 'null'], format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+    ProductPage:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Product' } }
+    CategoryPage:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Category' } }
+    ServicePage:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Service' } }
+    CustomerPage:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Customer' } }
+    StaffPage:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Staff' } }
+    InventoryPage:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/InventoryItem' } }
+    InventoryMovementPage:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/InventoryMovement' } }
+    SalePage:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Sale' } }
+    NotificationPage:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Notification' } }
+    QueueEntryPage:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/QueueEntry' } }
+    PageBase:
+      type: object
+      required: [data, pagination]
+      properties:
+        data: { type: array }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field: { type: string }
+                  message: { type: string }
+            requestId: { type: string }
+  responses:
+    BadRequest:
+      description: Invalid request or validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Authentication required or invalid
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Caller lacks role or business-line access
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource does not exist or is not visible
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: State conflict, duplicate key or invalid transition
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RateLimited:
+      description: Too many login attempts or login capacity reached
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

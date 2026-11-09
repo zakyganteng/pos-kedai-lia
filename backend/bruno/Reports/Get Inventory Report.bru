@@ -1,0 +1,16 @@
+meta {
+  name: Get Inventory Report
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/reports/inventory?businessLineId={{kedaiLineId}}
+  body: none
+  auth: inherit
+}
+
+params:query {
+  businessLineId: {{kedaiLineId}}
+  ~lowStock: false
+}

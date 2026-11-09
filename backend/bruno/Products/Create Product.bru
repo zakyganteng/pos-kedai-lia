@@ -1,0 +1,31 @@
+meta {
+  name: Create Product
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/products?businessLineId={{kedaiLineId}}
+  body: json
+  auth: inherit
+}
+
+params:query {
+  businessLineId: {{kedaiLineId}}
+}
+
+body:json {
+  {
+    "sku": "KOP-{{$guid}}",
+    "name": "Es Kopi Susu Gula Aren",
+    "unit": "cup",
+    "price": 18000,
+    "stockTracked": true
+  }
+}
+
+script:post-response {
+  if (res.status === 201 && res.body.id) {
+    bru.setEnvVar("productId", res.body.id);
+  }
+}
