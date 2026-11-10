@@ -70,7 +70,7 @@ test('duplicate names, invalid assignments, and foreign-origin writes are reject
   const missing = await request.patch(`/api/pos/products/${fixtures.product.id}`, { headers: { Origin: baseURL! }, data: { categoryId: randomUUID() } });
   expect(missing.status()).toBe(404);
   expect((await request.patch(`/api/pos/products/${fixtures.product.id}`, { headers: { Origin: baseURL! }, data: { categoryId: 'not-uuid' } })).status()).toBe(400);
-  expect((await request.patch(`/api/pos/products/${fixtures.product.id}`, { headers: { Origin: baseURL! }, data: { price: 1, categoryId: null } })).status()).toBe(400);
+  expect((await request.patch(`/api/pos/products/${fixtures.product.id}`, { headers: { Origin: baseURL! }, data: { price: -1, categoryId: null } })).status()).toBe(400);
   expect((await request.post(`/api/pos/categories?businessLineId=${fixtures.kedai.id}`, { headers: { Origin: 'https://foreign.example' }, data: { name: 'Forbidden category' } })).status()).toBe(403);
 });
 

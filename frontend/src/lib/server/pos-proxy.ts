@@ -14,7 +14,7 @@ import {
   secureCookiesEnabled,
 } from './config';
 import { readBoundedBody } from './bounded-body';
-import { errorResponse, passthroughResponse } from './errors';
+import { csvResponse, errorResponse, passthroughResponse } from './errors';
 import { checkRequestOrigin } from './origin';
 import { isValidIdempotencyKey, resolveProxyRequest } from './proxy-policy';
 import { clearedSessionCookie, readSessionToken, setCookieHeader } from './session-cookie';
@@ -58,7 +58,7 @@ export async function handlePosProxy(
       return errorResponse(415, 'UNSUPPORTED_MEDIA_TYPE', 'Request body must be JSON.');
     }
 
-    if (method === 'POST' && decision.path === '/sales') {
+    if (decision.idempotent) {
       const key = request.headers.get('x-idempotency-key');
       if (!isValidIdempotencyKey(key)) {
         return errorResponse(400, 'IDEMPOTENCY_KEY_REQUIRED', 'X-Idempotency-Key must be 1-200 characters of [A-Za-z0-9._:-].');
@@ -74,19 +74,15 @@ export async function handlePosProxy(
     }
     bodyText = body.text;
 
-    let payload: unknown;
-    try {
-      payload = JSON.parse(bodyText);
-    } catch {
-      return errorResponse(400, 'VALIDATION_ERROR', 'Request body must be valid JSON.');
-    }
-    if (method === 'PATCH' && decision.path.startsWith('/products/')) {
-      // This frontend exposes category assignment, not general catalog writes.
-      const object = typeof payload === 'object' && payload !== null && !Array.isArray(payload) ? payload as Record<string, unknown> : null;
-      const id = object?.categoryId;
-      if (!object || Object.keys(object).length !== 1 || !Object.hasOwn(object, 'categoryId') ||
-          !(id === null || (typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)))) {
-        return errorResponse(400, 'VALIDATION_ERROR', 'Only a UUID or null categoryId may be assigned through this frontend.');
+    // Action endpoints such as a notification retry take no body. An empty
+    // body is forwarded as none; the backend still validates required bodies.
+    if (bodyText.trim() === '') {
+      bodyText = undefined;
+    } else {
+      try {
+        JSON.parse(bodyText);
+      } catch {
+        return errorResponse(400, 'VALIDATION_ERROR', 'Request body must be valid JSON.');
       }
     }
   }
@@ -108,6 +104,7 @@ export async function handlePosProxy(
     bodyText,
     idempotencyKey,
     mutation: decision.mutation,
+    expect: decision.csv ? 'csv' : 'json',
     fetchImpl: deps.fetchImpl,
   });
 
@@ -122,6 +119,10 @@ export async function handlePosProxy(
       result.bodyText,
       setCookieHeader(clearedSessionCookie({ secure })),
     );
+  }
+
+  if (decision.csv && result.status === 200) {
+    return csvResponse(result.bodyText);
   }
 
   return passthroughResponse(result.status, result.bodyText);

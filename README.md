@@ -1,6 +1,6 @@
 # Lia POS
 
-A shared counter POS for Kedai Lia 287 and Lia Salon, built with a Next.js + TypeScript frontend, Go API, and PostgreSQL. `openapi.yaml` is the versioned API contract; implementation and verification notes are in `docs/`. The core frontend uses the Boutique Lia theme from [design.md](design.md): login, business-line switching, checkout, payment status, and receipts. Owners/admins can manage kedai categories and product assignments in Katalog; other management screens remain outside this build.
+A shared counter POS for Kedai Lia 287 and Lia Salon, built with a Next.js + TypeScript frontend, Go API, and PostgreSQL. `openapi.yaml` is the versioned API contract; implementation and verification notes are in `docs/`. The frontend uses the Boutique Lia theme from [design.md](design.md) and covers every browser-facing API operation: checkout, receipts and voids, salon queue, reports with CSV export, stock, catalog (products, categories, services), customers, staff, notifications, payment reconciliation, user administration and system status. Navigation is filtered by role and business-line type, matching the backend's own checks.
 
 ## Layout
 
@@ -64,7 +64,7 @@ npm run dev
 # Open http://127.0.0.1:3000
 ```
 
-The server-only `POS_API_URL` defaults to `http://127.0.0.1:8080/api/v1`; see `frontend/.env.example`. Fonts are bundled locally rather than downloaded at runtime. There is no fabricated catalog data: an empty database produces an empty catalog. Katalog supports editable kedai categories and product assignments. Product/service creation and other catalog administration still use the authorized API or Bruno collection. The supplied kedai menu is already imported into the original local database and classified as Makanan/Minuman; Snack starts empty for manual assignment. A fresh clone has no catalog records until you run the importer with `data/menu.md`; see `frontend/README.md`.
+The server-only `POS_API_URL` defaults to `http://127.0.0.1:8080/api/v1`; see `frontend/.env.example`. Fonts are bundled locally rather than downloaded at runtime. There is no fabricated catalog data: an empty database produces an empty catalog. Owners/admins create and edit products, categories and salon services in Katalog. The supplied kedai menu is already imported into the original local database and classified as Makanan/Minuman; Snack starts empty for manual assignment. A fresh clone has no catalog records until you run the importer with `data/menu.md`; see `frontend/README.md`.
 
 Verification commands:
 

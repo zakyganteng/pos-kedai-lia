@@ -17,17 +17,33 @@ function decide(method: string, path: string) {
 
 test('allowlisted reads resolve to the matching backend path', () => {
   const allowed = [
+    '/business-lines',
     '/products',
+    `/products/${UUID}`,
     '/services',
+    `/services/${UUID}`,
     '/customers',
+    `/customers/${UUID}`,
     '/staff',
+    `/staff/${UUID}`,
     '/inventory',
+    '/inventory/movements',
     '/sales',
     `/sales/${UUID}`,
     `/payments/${UUID}`,
+    '/payments/reconciliation',
+    '/notifications',
+    '/reports/sales',
+    '/reports/inventory',
+    '/reports/sales.csv',
+    '/salon/queue',
+    '/users',
+    `/users/${UUID}`,
     '/integrations',
     '/categories',
     `/categories/${UUID}`,
+    '/health/live',
+    '/health/ready',
   ];
   for (const path of allowed) {
     const decision = decide('GET', path);
@@ -39,30 +55,78 @@ test('allowlisted reads resolve to the matching backend path', () => {
   }
 });
 
-test('POST is limited to checkout and category creation', () => {
-  const sale = decide('POST', '/sales?businessLineId=' + UUID);
-  assert.equal(sale.ok, true);
-  if (sale.ok) assert.equal(sale.mutation, true);
-  assert.equal(decide('POST', '/categories?businessLineId=' + UUID).ok, true);
-
-  for (const path of ['/products', '/customers', `/sales/${UUID}/void`, '/inventory/movements']) {
-    const decision = decide('POST', path);
-    assert.equal(decision.ok, false, `expected POST ${path} to be refused`);
+test('every documented write is reachable at its exact resource path', () => {
+  const writes: Array<[string, string]> = [
+    ['POST', '/sales?businessLineId=' + UUID],
+    ['POST', '/categories?businessLineId=' + UUID],
+    ['POST', '/products?businessLineId=' + UUID],
+    ['POST', '/services?businessLineId=' + UUID],
+    ['POST', '/customers?businessLineId=' + UUID],
+    ['POST', '/staff?businessLineId=' + UUID],
+    ['POST', '/inventory/movements?businessLineId=' + UUID],
+    ['POST', '/salon/queue?businessLineId=' + UUID],
+    ['POST', `/sales/${UUID}/void`],
+    ['POST', `/notifications/${UUID}/retry`],
+    ['POST', '/users'],
+    ['PATCH', `/products/${UUID}`],
+    ['PATCH', `/services/${UUID}`],
+    ['PATCH', `/customers/${UUID}`],
+    ['PATCH', `/staff/${UUID}`],
+    ['PATCH', `/categories/${UUID}`],
+    ['PATCH', `/salon/queue/${UUID}`],
+    ['PATCH', `/users/${UUID}`],
+    ['DELETE', `/products/${UUID}`],
+    ['DELETE', `/services/${UUID}`],
+    ['DELETE', `/customers/${UUID}`],
+    ['DELETE', `/staff/${UUID}`],
+    ['DELETE', `/categories/${UUID}`],
+    ['DELETE', `/users/${UUID}`],
+  ];
+  for (const [method, path] of writes) {
+    const decision = decide(method, path);
+    assert.equal(decision.ok, true, `expected ${method} ${path} to be allowed`);
+    if (decision.ok) assert.equal(decision.mutation, true);
   }
 });
 
-test('sensitive and administrative routes are not reachable', () => {
+test('only checkout and queue creation require an idempotency key', () => {
+  const sale = decide('POST', '/sales');
+  const queue = decide('POST', '/salon/queue');
+  const product = decide('POST', '/products');
+  assert.equal(sale.ok && sale.idempotent, true);
+  assert.equal(queue.ok && queue.idempotent, true);
+  assert.equal(product.ok && product.idempotent, false);
+});
+
+test('the sales export is the only CSV route', () => {
+  const csv = decide('GET', '/reports/sales.csv');
+  assert.equal(csv.ok && csv.csv, true);
+  const json = decide('GET', '/reports/sales');
+  assert.equal(json.ok && json.csv, false);
+});
+
+test('writes on collection or wrong paths are refused', () => {
+  for (const [method, path] of [
+    ['DELETE', '/products'],
+    ['PATCH', '/products'],
+    ['DELETE', '/categories'],
+    ['DELETE', `/sales/${UUID}`],
+    ['PATCH', `/sales/${UUID}`],
+    ['DELETE', `/salon/queue/${UUID}`],
+    ['POST', `/payments/${UUID}`],
+    ['POST', '/integrations'],
+    ['POST', '/reports/sales'],
+  ]) {
+    assert.equal(decide(method, path).ok, false, `expected ${method} ${path} to be refused`);
+  }
+});
+
+test('auth endpoints and provider webhooks are not reachable', () => {
   const blocked = [
     '/webhooks/payments/mock',
-    '/users',
-    `/users/${UUID}`,
     '/auth/login',
+    '/auth/logout',
     '/auth/me',
-    '/reports/sales',
-    '/reports/sales.csv',
-    '/payments/reconciliation',
-    '/health/ready',
-    '/notifications',
   ];
   for (const path of blocked) {
     for (const method of ['GET', 'POST']) {
@@ -94,15 +158,6 @@ test('unsupported methods are refused with 405', () => {
   }
 });
 
-test('category writes are allowed only at their exact resource paths', () => {
-  assert.equal(decide('PATCH', `/categories/${UUID}`).ok, true);
-  assert.equal(decide('DELETE', `/categories/${UUID}`).ok, true);
-  assert.equal(decide('PATCH', `/products/${UUID}`).ok, true);
-  for (const [method, path] of [['DELETE', `/products/${UUID}`], ['PATCH', '/products'], ['DELETE', '/categories'], ['PATCH', `/services/${UUID}`]]) {
-    assert.equal(decide(method, path).ok, false);
-  }
-});
-
 test('category filters apply only to products and cannot contradict each other', () => {
   assert.equal(decide('GET', `/products?categoryId=${UUID}`).ok, true);
   assert.equal(decide('GET', '/products?uncategorized=true').ok, true);
@@ -110,6 +165,19 @@ test('category filters apply only to products and cannot contradict each other',
   assert.equal(decide('GET', `/services?categoryId=${UUID}`).ok, false);
   assert.equal(decide('GET', `/categories?categoryId=${UUID}`).ok, false);
   assert.equal(decide('GET', '/products?categoryId=bad').ok, false);
+});
+
+test('query parameters are scoped to the route that accepts them', () => {
+  assert.equal(decide('GET', `/reports/sales?businessLineId=${UUID}&from=2026-01-01&to=2026-01-31&groupBy=item`).ok, true);
+  assert.equal(decide('GET', '/reports/sales?groupBy=week').ok, false);
+  assert.equal(decide('GET', '/salon/queue?status=in_service&date=2026-02-01').ok, true);
+  assert.equal(decide('GET', '/salon/queue?status=paid').ok, false);
+  assert.equal(decide('GET', '/sales?status=in_service').ok, false);
+  assert.equal(decide('GET', '/notifications?status=failed').ok, true);
+  assert.equal(decide('GET', '/payments/reconciliation?outcome=mismatch&search=abc').ok, true);
+  assert.equal(decide('GET', '/payments/reconciliation?outcome=nope').ok, false);
+  assert.equal(decide('GET', '/users?businessLineId=' + UUID).ok, false);
+  assert.equal(decide('GET', '/inventory?search=kopi').ok, false);
 });
 
 test('paging, filter and date parameters pass with valid values', () => {

@@ -1,0 +1,112 @@
+/* Antrean salon. Everything else on the screen uses globals.css; these rules
+   only cover the queue card, whose big queue number has no equivalent there. */
+
+.queue-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+  gap: var(--s4);
+}
+
+.queue-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  background: var(--surface);
+  border: 1px solid var(--divider);
+  border-radius: var(--r-lg);
+  padding: var(--s4);
+}
+
+.queue-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+}
+
+.queue-number {
+  flex: none;
+  min-width: 3.75rem;
+  padding: var(--s1) var(--s2);
+  background: var(--selected);
+  border-radius: var(--r-md);
+  color: var(--accent);
+  font-family: var(--title-font);
+  font-size: 1.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.queue-card-title {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  min-width: 0;
+}
+
+.queue-card-name {
+  font-weight: 700;
+  font-size: 1.125rem;
+}
+
+.queue-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  align-items: center;
+}
+
+.queue-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s4);
+  margin: 0;
+  color: var(--text-2);
+  font-size: 0.875rem;
+}
+
+.queue-times > div {
+  display: flex;
+  gap: var(--s1);
+}
+
+.queue-times dt::after {
+  content: ':';
+}
+
+.queue-times dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.queue-services {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+
+.queue-service {
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--divider);
+  border-radius: var(--r-sm);
+  font-size: 0.875rem;
+}
+
+.queue-note {
+  padding: var(--s2) var(--s3);
+  border-left: 3px solid var(--divider);
+  background: var(--bg);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+}
+
+.queue-card .field {
+  margin-top: auto;
+}
+
+/* Price column of the service check-list in the "Tambah antrean" dialog. */
+.queue-service-price {
+  margin-left: auto;
+  white-space: nowrap;
+}
