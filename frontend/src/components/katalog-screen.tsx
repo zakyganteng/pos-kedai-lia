@@ -1,20 +1,29 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import Link from 'next/link';
 import { useSession } from '@/hooks/use-session';
 import { useAllCategories } from '@/hooks/use-categories';
 import { CategoryPanel } from './category-panel';
+import { ProductAdminPanel } from './product-admin-panel';
 import { ProductCategoryPanel } from './product-category-panel';
-import { Notice, PermissionBlock } from './states';
+import { ServiceAdminPanel } from './service-admin-panel';
+import { PermissionBlock } from './states';
+
+const TABS = [
+  { id: 'kategori', label: 'Kategori' },
+  { id: 'produk', label: 'Produk' },
+];
 
 /**
- * Katalog: create, rename, archive and restore the categories of one business
- * line, and put each product into one.
+ * Katalog: what a business line sells.
+ *
+ * A kedai line keeps products and the categories they are filed under, split
+ * across two tabs so neither list has to fight the other for the width. A
+ * salon line has no categories at all, so it gets its service list instead.
  *
  * Nothing here is cached between visits. Returning to Kasir re-reads the
- * category list, so a name changed on this screen is the name on the filter
- * chips, and a category archived here is gone from them.
+ * catalogue, so a price changed on this screen is the price charged, and an
+ * item archived here is gone from the till.
  */
 export function KatalogScreen() {
   const { user, line, onSessionExpired } = useSession();
@@ -23,9 +32,13 @@ export function KatalogScreen() {
   const salon = line.type === 'salon';
   const enabled = manages && !salon;
 
-  // Two counters, each telling the other panel that the server state it shows
-  // has moved: a rename changes the labels products are assigned to, and an
-  // assignment changes the product count a category is archived on.
+  // The category tab is the default: it is where the two panels that have
+  // always lived on this screen are, and it is the shorter of the two jobs.
+  const [tab, setTab] = useState('kategori');
+
+  // Two counters, each telling the other tab that the server state it shows
+  // has moved: a rename changes the labels products are filed under, and a
+  // product write changes the count a category may be archived on.
   const [categoryRevision, setCategoryRevision] = useState(0);
   const [productRevision, setProductRevision] = useState(0);
 
@@ -42,7 +55,7 @@ export function KatalogScreen() {
     setProductRevision((value) => value + 1);
   }, [reloadCatalogue]);
 
-  const onAssignmentChanged = useCallback(() => {
+  const onProductChanged = useCallback(() => {
     reloadCatalogue();
     setCategoryRevision((value) => value + 1);
   }, [reloadCatalogue]);
@@ -60,37 +73,66 @@ export function KatalogScreen() {
           menggunakan halaman Kasir dan Struk.
         </PermissionBlock>
       ) : salon ? (
-        <Notice tone="neutral" title={`${line.name} tidak menggunakan kategori`}>
-          <p className="meta">
-            Kategori hanya berlaku untuk produk kedai. Layanan salon dipilih langsung dari
-            daftarnya di halaman kasir.
-          </p>
-          <p className="meta">
-            Beralihlah ke unit usaha kedai lewat pilihan di bagian atas halaman untuk mengatur
-            kategori produknya.
-          </p>
-          <div className="btn-row">
-            <Link className="btn btn-secondary" href="/kasir">
-              Buka Kasir
-            </Link>
-          </div>
-        </Notice>
+        <ServiceAdminPanel line={line} onSessionExpired={onSessionExpired} />
       ) : (
-        <div className="katalog">
-          <CategoryPanel
-            line={line}
-            revision={categoryRevision}
-            onChanged={onCategoryChanged}
-            onSessionExpired={onSessionExpired}
-          />
-          <ProductCategoryPanel
-            line={line}
-            catalogue={catalogue}
-            revision={productRevision}
-            onChanged={onAssignmentChanged}
-            onSessionExpired={onSessionExpired}
-          />
-        </div>
+        <>
+          <div className="tabs" role="tablist" aria-label="Bagian katalog">
+            {TABS.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                role="tab"
+                id={`katalog-tab-${entry.id}`}
+                className="tab"
+                aria-selected={tab === entry.id}
+                aria-controls={`katalog-panel-${entry.id}`}
+                onClick={() => setTab(entry.id)}
+              >
+                {entry.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Only the chosen tab is mounted. A hidden list that keeps polling
+              and keeps its own page number would answer for state the user
+              cannot see; re-entering a tab simply re-reads the server. */}
+          {tab === 'kategori' ? (
+            <div
+              className="katalog"
+              role="tabpanel"
+              id="katalog-panel-kategori"
+              aria-labelledby="katalog-tab-kategori"
+            >
+              <CategoryPanel
+                line={line}
+                revision={categoryRevision}
+                onChanged={onCategoryChanged}
+                onSessionExpired={onSessionExpired}
+              />
+              <ProductCategoryPanel
+                line={line}
+                catalogue={catalogue}
+                revision={productRevision}
+                onChanged={onProductChanged}
+                onSessionExpired={onSessionExpired}
+              />
+            </div>
+          ) : (
+            <div
+              role="tabpanel"
+              id="katalog-panel-produk"
+              aria-labelledby="katalog-tab-produk"
+            >
+              <ProductAdminPanel
+                line={line}
+                catalogue={catalogue}
+                revision={productRevision}
+                onChanged={onProductChanged}
+                onSessionExpired={onSessionExpired}
+              />
+            </div>
+          )}
+        </>
       )}
     </main>
   );

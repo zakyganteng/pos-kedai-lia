@@ -107,11 +107,11 @@ test('non-allowlisted routes are refused without any backend call', async () => 
   };
 
   for (const [method, path] of [
-    ['GET', '/users'],
     ['POST', '/webhooks/payments/mock'],
-    ['GET', '/reports/sales.csv'],
-    ['POST', `/sales/${UUID}/void`],
     ['GET', '/auth/me'],
+    ['POST', '/auth/login'],
+    ['DELETE', `/sales/${UUID}`],
+    ['GET', '/admin'],
   ] as const) {
     const { request, segments } = proxyRequest(method, path, { cookie: 'pos_session=tok' });
     const response = await handlePosProxy(request, segments, { ...DEPS, fetchImpl });
@@ -310,20 +310,67 @@ test('category archive forwards DELETE without requiring a JSON body', async () 
   assert.equal(calls[0].init.body, undefined);
 });
 
-test('product patch exposes only category assignment, including clearing to null', async () => {
-  for (const body of [`{"categoryId":"${UUID}"}`, '{"categoryId":null}']) {
+test('product patch forwards the full catalog body; invalid JSON is refused locally', async () => {
+  for (const body of [`{"categoryId":"${UUID}"}`, '{"categoryId":null}', '{"price":1500,"name":"Kopi"}']) {
     const { calls, fetchImpl } = recorder(() => json({ id: UUID, categoryId: null }));
     const { request, segments } = proxyRequest('PATCH', `/products/${UUID}`, { cookie: 'pos_session=tok', body });
     assert.equal((await handlePosProxy(request, segments, { ...DEPS, fetchImpl })).status, 200);
     assert.equal(calls[0].init.method, 'PATCH');
     assert.equal(calls[0].init.body, body);
   }
-  for (const body of ['{}', '{"price":1}', '{"categoryId":null,"price":1}', '{"categoryId":"bad"}', '[]', 'null']) {
-    const { calls, fetchImpl } = recorder(() => json({}));
-    const { request, segments } = proxyRequest('PATCH', `/products/${UUID}`, { cookie: 'pos_session=tok', body });
-    assert.equal((await handlePosProxy(request, segments, { ...DEPS, fetchImpl })).status, 400);
-    assert.equal(calls.length, 0);
-  }
+  const { calls, fetchImpl } = recorder(() => json({}));
+  const { request, segments } = proxyRequest('PATCH', `/products/${UUID}`, { cookie: 'pos_session=tok', body: '{bad' });
+  assert.equal((await handlePosProxy(request, segments, { ...DEPS, fetchImpl })).status, 400);
+  assert.equal(calls.length, 0);
+});
+
+test('queue creation requires and forwards an idempotency key', async () => {
+  const missing = recorder(() => json({}, 201));
+  const first = proxyRequest('POST', `/salon/queue?businessLineId=${UUID}`, { cookie: 'pos_session=tok', body: '{"serviceIds":[]}' });
+  assert.equal((await handlePosProxy(first.request, first.segments, { ...DEPS, fetchImpl: missing.fetchImpl })).status, 400);
+  assert.equal(missing.calls.length, 0);
+
+  const { calls, fetchImpl } = recorder(() => json({ id: UUID }, 201));
+  const { request, segments } = proxyRequest('POST', `/salon/queue?businessLineId=${UUID}`, {
+    cookie: 'pos_session=tok',
+    body: `{"serviceIds":["${UUID}"]}`,
+    headers: { 'x-idempotency-key': 'queue-1' },
+  });
+  assert.equal((await handlePosProxy(request, segments, { ...DEPS, fetchImpl })).status, 201);
+  assert.equal((calls[0].init.headers as Record<string, string>)['x-idempotency-key'], 'queue-1');
+});
+
+test('an action POST without a body is forwarded without one', async () => {
+  const { calls, fetchImpl } = recorder(() => json({ status: 'queued' }, 202));
+  const { request, segments } = proxyRequest('POST', `/notifications/${UUID}/retry`, { cookie: 'pos_session=tok' });
+  assert.equal((await handlePosProxy(request, segments, { ...DEPS, fetchImpl })).status, 202);
+  assert.equal(calls[0].init.body, undefined);
+});
+
+test('the sales CSV export is delivered as a CSV download', async () => {
+  const csv = 'saleId,businessLineId,createdAt,paymentMethod,total\n';
+  const { calls, fetchImpl } = recorder(
+    () => new Response(csv, { status: 200, headers: { 'content-type': 'text/csv; charset=utf-8' } }),
+  );
+  const { request, segments } = proxyRequest(
+    'GET',
+    `/reports/sales.csv?businessLineId=${UUID}&from=2026-01-01&to=2026-01-31`,
+    { cookie: 'pos_session=tok' },
+  );
+  const response = await handlePosProxy(request, segments, { ...DEPS, fetchImpl });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') ?? '', /^text\/csv/);
+  assert.match(response.headers.get('content-disposition') ?? '', /attachment/);
+  assert.equal(await response.text(), csv);
+  assert.match((calls[0].init.headers as Record<string, string>).accept, /text\/csv/);
+});
+
+test('a CSV body on a JSON route is still refused', async () => {
+  const { fetchImpl } = recorder(
+    () => new Response('a,b\n', { status: 200, headers: { 'content-type': 'text/csv' } }),
+  );
+  const { request, segments } = proxyRequest('GET', `/reports/sales?businessLineId=${UUID}`, { cookie: 'pos_session=tok' });
+  assert.equal((await handlePosProxy(request, segments, { ...DEPS, fetchImpl })).status, 502);
 });
 
 test('category mutations retain same-origin checks and backend role denials', async () => {

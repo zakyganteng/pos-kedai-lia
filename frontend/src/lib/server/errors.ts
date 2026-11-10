@@ -72,6 +72,19 @@ export function errorResponse(
   );
 }
 
+/** A CSV export, delivered as a download. */
+export function csvResponse(bodyText: string, filename = 'penjualan.csv'): Response {
+  return new Response(bodyText, {
+    status: 200,
+    headers: {
+      'content-type': 'text/csv; charset=utf-8',
+      'content-disposition': `attachment; filename="${filename}"`,
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    },
+  });
+}
+
 /** Passes an upstream JSON payload through unchanged, with no-store caching. */
 export function passthroughResponse(
   status: number,

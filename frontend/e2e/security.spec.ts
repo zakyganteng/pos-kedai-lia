@@ -18,8 +18,9 @@ test("session tokens remain HTTP-only, proxy stays allowlisted, logout revokes s
   const state = await request.storageState();
   expect(state.cookies.some(cookie => cookie.httpOnly)).toBe(true);
 
-  const blocked = await request.get("/api/pos/users");
+  const blocked = await request.post("/api/pos/webhooks/payments/mock", { headers: { Origin: baseURL! }, data: {} });
   expect(blocked.status()).toBe(404);
+  expect((await request.get("/api/pos/auth/me")).status()).toBe(404);
   const foreign = await request.post(`/api/pos/sales?businessLineId=${fixtures.kedai.id}`, {
     headers: { Origin: "https://attacker.example", "X-Idempotency-Key": "cross-origin-test" },
     data: { items: [{ itemId: fixtures.product.id, itemType: "product", quantity: 1 }], paymentMethod: "cash", cashReceived: 10000 },
@@ -42,4 +43,6 @@ test("cashier cannot read another business line or integration configuration", a
   expect(user.businessLines).toHaveLength(1);
   expect((await request.get(`/api/pos/services?businessLineId=${fixtures.salon.id}`)).status()).toBe(403);
   expect((await request.get("/api/pos/integrations")).status()).toBe(403);
+  expect((await request.get("/api/pos/users")).status()).toBe(403);
+  expect((await request.get(`/api/pos/notifications?businessLineId=${fixtures.kedai.id}`)).status()).toBe(403);
 });

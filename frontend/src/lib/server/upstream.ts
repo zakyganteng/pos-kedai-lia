@@ -22,6 +22,8 @@ export interface UpstreamCall {
   idempotencyKey?: string;
   /** Mutations report an uncertain outcome differently from reads. */
   mutation?: boolean;
+  /** Media type a successful response must carry. Errors are always JSON. */
+  expect?: 'json' | 'csv';
   timeoutMs?: number;
   fetchImpl?: FetchLike;
 }
@@ -79,6 +81,11 @@ export function isJsonContentType(value: string | null | undefined): boolean {
   return media === 'application/json' || media.endsWith('+json');
 }
 
+export function isCsvContentType(value: string | null | undefined): boolean {
+  const media = (value ?? '').split(';', 1)[0].trim().toLowerCase();
+  return media === 'text/csv';
+}
+
 /**
  * Rejects `promise` as soon as `signal` aborts.
  *
@@ -112,7 +119,10 @@ export async function callUpstream(call: UpstreamCall): Promise<UpstreamResult> 
     return { ok: false, status: 500, code: 'CONFIG_ERROR', message: CONFIG_ERROR_MESSAGE };
   }
 
-  const headers: Record<string, string> = { accept: 'application/json' };
+  const expectCsv = call.expect === 'csv';
+  const headers: Record<string, string> = {
+    accept: expectCsv ? 'text/csv, application/json' : 'application/json',
+  };
   if (call.token) headers.authorization = `Bearer ${call.token}`;
   if (call.bodyText !== undefined) headers['content-type'] = 'application/json';
   if (call.idempotencyKey) headers['x-idempotency-key'] = call.idempotencyKey;
@@ -166,12 +176,18 @@ export async function callUpstream(call: UpstreamCall): Promise<UpstreamResult> 
       return { ok: true, status: response.status, bodyText: '' };
     }
 
+    const contentType = response.headers.get('content-type');
+    if (expectCsv && response.ok && isCsvContentType(contentType)) {
+      // A CSV with no matching sales is still a valid, header-only export.
+      return { ok: true, status: response.status, bodyText };
+    }
+
     if (bodyText === '') {
       // An empty 200 used to pass through and surface in the browser as an
       // undefined payload, which crashes the caller instead of failing here.
       return invalidResponse('The POS backend returned an empty response.');
     }
-    if (!isJsonContentType(response.headers.get('content-type'))) {
+    if (!isJsonContentType(contentType)) {
       return invalidResponse('The POS backend returned a non-JSON response.');
     }
 

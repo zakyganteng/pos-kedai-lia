@@ -131,7 +131,10 @@ export function errorFromPayload(status: number, payload: unknown): ApiError {
 function buildHeaders(options: RequestInit | undefined, hasBody: boolean): Headers {
   const headers = new Headers(options?.headers);
   if (!headers.has('accept')) headers.set('accept', 'application/json');
-  if (hasBody && !headers.has('content-type')) {
+  const method = (options?.method ?? 'GET').toUpperCase();
+  // Action POSTs such as a notification retry carry no body but are still
+  // JSON API calls; the proxy requires the JSON media type on every write.
+  if ((hasBody || method === 'POST' || method === 'PATCH') && !headers.has('content-type')) {
     headers.set('content-type', 'application/json');
   }
   return headers;
@@ -196,6 +199,51 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
  */
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   return request<T>(toProxyUrl(path), options);
+}
+
+/**
+ * Downloads a CSV export through the proxy and hands it to the browser as a
+ * file. Errors arrive in the usual JSON envelope and are thrown as ApiError.
+ */
+export async function apiDownload(path: string, filename: string): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(toProxyUrl(path), {
+      headers: { accept: 'text/csv, application/json' },
+      cache: 'no-store',
+      credentials: 'same-origin',
+      redirect: 'error',
+    });
+  } catch (cause) {
+    throw new ApiError(
+      0,
+      NETWORK_ERROR,
+      'The server could not be reached. Check the connection and try again.',
+      { cause },
+    );
+  }
+  if (!response.ok) {
+    let payload: unknown;
+    try {
+      payload = await readJson(response);
+    } catch {
+      payload = undefined;
+    }
+    throw errorFromPayload(response.status, payload);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    // Revoked on the next tick so the click has started the download.
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
 }
 
 /**

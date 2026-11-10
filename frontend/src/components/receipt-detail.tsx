@@ -1,18 +1,25 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { rupiah } from '@/lib/format';
+import { canManage } from '@/lib/nav';
 import { useSession } from '@/hooks/use-session';
 import { useSale } from '@/hooks/use-sale';
 import { forgetPendingSale } from '@/hooks/use-checkout';
 import { QrisPanel } from './qris-panel';
 import { Receipt, isPrintable } from './receipt';
+import { VoidSaleDialog } from './void-sale-dialog';
 import { ErrorBlock, LoadingBlock, Notice, PermissionBlock } from './states';
 
 export function ReceiptDetail({ saleId }: { saleId: string }) {
-  const { line, lines, workspace, requestLineChange, onSessionExpired } = useSession();
+  const { user, line, lines, workspace, requestLineChange, onSessionExpired } = useSession();
   const result = useSale(saleId, { onSessionExpired });
   const sale = result.sale;
+  const [voidOpen, setVoidOpen] = useState(false);
+  // Set only after the server confirms the void, so the message describes a
+  // state the backend actually holds.
+  const [voidConfirmed, setVoidConfirmed] = useState(false);
 
   if (result.loading) {
     return (
@@ -102,6 +109,10 @@ export function ReceiptDetail({ saleId }: { saleId: string }) {
   const pendingQris = payment?.status === 'pending' && payment.method === 'qris';
   const pendingCash = payment?.status === 'pending' && payment.method === 'cash';
   const printable = isPrintable(sale);
+  const voided = sale.status === 'voided';
+  // Exactly the backend's own condition for POST /sales/{id}/void.
+  const canVoid =
+    canManage(user.role) && sale.status === 'paid' && payment?.status === 'confirmed';
 
   return (
     <main className="pos-main" id="konten">
@@ -158,6 +169,20 @@ export function ReceiptDetail({ saleId }: { saleId: string }) {
         </div>
       ) : null}
 
+      {voided ? (
+        <div style={{ marginBottom: 'var(--s4)' }}>
+          <Notice tone="error" title="Transaksi ini dibatalkan setelah pembayaran." live="polite">
+            <p className="meta">
+              {voidConfirmed
+                ? `Server mencatat pembatalan transaksi sebesar ${rupiah(sale.total)}.`
+                : `Server mencatat transaksi sebesar ${rupiah(sale.total)} sebagai dibatalkan.`}{' '}
+              Nilainya tidak lagi dihitung dalam laporan penjualan, dan stok item yang dipantau
+              sudah dikembalikan dengan catatan pergerakan. Struk ini tidak dapat dicetak.
+            </p>
+          </Notice>
+        </div>
+      ) : null}
+
       <Receipt sale={sale} line={line} />
 
       <div className="btn-row no-print" style={{ marginTop: 'var(--s4)' }}>
@@ -181,6 +206,11 @@ export function ReceiptDetail({ saleId }: { saleId: string }) {
         <Link className="btn btn-secondary" href="/struk">
           Daftar struk
         </Link>
+        {canVoid ? (
+          <button type="button" className="btn btn-danger" onClick={() => setVoidOpen(true)}>
+            Batalkan transaksi
+          </button>
+        ) : null}
       </div>
 
       {printable ? null : (
@@ -189,6 +219,20 @@ export function ReceiptDetail({ saleId }: { saleId: string }) {
           lunas.
         </p>
       )}
+
+      {canVoid ? (
+        <VoidSaleDialog
+          sale={sale}
+          open={voidOpen}
+          onClose={() => setVoidOpen(false)}
+          onVoided={() => {
+            setVoidOpen(false);
+            setVoidConfirmed(true);
+            result.reload();
+          }}
+          onSessionExpired={onSessionExpired}
+        />
+      ) : null}
     </main>
   );
 }

@@ -4,22 +4,15 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useId } from 'react';
 import { useSession } from '@/hooks/use-session';
-import type { CurrentUser } from '@/lib/types';
-
-/** `roles` omitted means every signed in role sees the link. */
-const NAV: { href: string; label: string; roles?: CurrentUser['role'][] }[] = [
-  { href: '/kasir', label: 'Kasir' },
-  { href: '/struk', label: 'Struk' },
-  { href: '/katalog', label: 'Katalog', roles: ['owner', 'admin'] },
-];
+import { visibleNav } from '@/lib/nav';
 
 export function AppHeader() {
   const { user, lines, line, requestLineChange, logout, loggingOut } = useSession();
   const pathname = usePathname();
   const selectId = useId();
 
-  // A cashier is not offered a link the backend would refuse anyway.
-  const nav = NAV.filter((item) => item.roles === undefined || item.roles.includes(user.role));
+  // Links the backend would refuse for this role or line type are not offered.
+  const nav = visibleNav(user.role, line.type);
 
   return (
     <header className="app-header no-print">
@@ -27,22 +20,6 @@ export function AppHeader() {
         <Link href="/kasir" className="wordmark">
           Lia POS
         </Link>
-
-        <nav className="app-nav" aria-label="Navigasi utama">
-          {nav.map((item) => {
-            const current = pathname === item.href || pathname.startsWith(`${item.href}/`);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="nav-link"
-                aria-current={current ? 'page' : undefined}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
 
         <div className="header-right">
           <div className="line-pick">
@@ -76,6 +53,24 @@ export function AppHeader() {
           </button>
         </div>
       </div>
+
+      <nav className="app-nav" aria-label="Navigasi utama">
+        <div className="app-nav-inner">
+          {nav.map((item) => {
+            const current = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="nav-link"
+                aria-current={current ? 'page' : undefined}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
     </header>
   );
 }

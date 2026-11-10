@@ -19,16 +19,27 @@ Open http://127.0.0.1:3000. On a newly migrated database, use the development ow
 
 The whole stack can also run with `make dev` from the project root. The frontend image uses Next.js standalone output and runs as a non-root user. Production uses secure cookies and requires HTTPS; the local Docker endpoint is intended for a localhost browser, not exposure on a LAN.
 
-## Core scope
+## Scope
 
-- `/login`: sign in with an existing account.
-- `/kasir`: switch assigned business lines, search products or salon services, review quantities, optionally associate an existing customer and salon staff, then submit cash or available QRIS checkout.
-- `/struk`: view line-scoped transaction records and reopen a saved receipt or pending payment.
-- `/struk/[id]`: show the persisted transaction, inspect live pending payment status, and print confirmed receipts.
+Every screen is scoped to the selected business line. Links are shown only to roles and line types the backend accepts (`src/lib/nav.ts`); the backend still enforces every permission.
 
-- `/katalog`: owner/admin category creation, rename, archive/restore, and product-category assignment for the kedai. Cashiers use category filters in Kasir but cannot manage them. Salon services do not have categories.
+| Route | Who | Endpoints |
+| --- | --- | --- |
+| `/login` | everyone | `/auth/login`, `/auth/logout`, `/auth/me` (via `/api/session`) |
+| `/kasir` | all roles | products/services/categories/customers/staff reads, `POST /sales`, `GET /payments/{id}` |
+| `/struk`, `/struk/[id]` | all roles; void for owner/admin | `GET /sales`, `GET /sales/{id}`, `POST /sales/{id}/void` |
+| `/antrean` | all roles, salon lines | `GET/POST /salon/queue`, `PATCH /salon/queue/{id}` (link a paid sale) |
+| `/laporan` | all roles; item/staff grouping and CSV for owner/admin | `/reports/sales`, `/reports/sales.csv`, `/reports/inventory` (kedai) |
+| `/stok` | read: all roles, kedai; receive: owner/admin; adjust: owner | `/inventory`, `GET/POST /inventory/movements` |
+| `/katalog` | owner/admin | kedai: products CRUD + categories/assignments; salon: services CRUD |
+| `/pelanggan` | list/create: all roles; edit/archive: owner/admin | `/customers`, `/customers/{id}` |
+| `/staf` | list: all roles; write: owner/admin | `/staff`, `/staff/{id}` |
+| `/notifikasi` | owner/admin | `GET /notifications`, `POST /notifications/{id}/retry` |
+| `/rekonsiliasi` | owner/admin | `GET /payments/reconciliation` |
+| `/pengguna` | owner | `/users`, `/users/{id}`, `/business-lines` |
+| `/sistem` | owner | `/integrations`, `/health/live`, `/health/ready` |
 
-This stage does not include product/service creation, stock receiving, customer/staff administration, queue management, reports, or user management. These remain available through the appropriate authorized backend endpoints, not invented frontend links. A fresh database has no products or services; an empty catalog is an intentional state.
+The only API operation without a browser screen is the provider webhook `POST /webhooks/payments/{provider}`, which is server-to-server and is never proxied. A fresh database has no products or services; an empty catalog is an intentional state.
 
 ## Touchscreen tablet layout
 
@@ -58,9 +69,7 @@ The supplied menu was imported into the local kedai catalog: 22 foods and 21 dri
 
 ## Authentication and integration
 
-`/api/session` logs in, reads the current user, and signs out. Access tokens are kept in an HTTP-only, SameSite=Lax cookie. The login response exposed to browser JavaScript includes the user and expiry, not the token. `/api/pos/*` forwards core POS reads, sale creation, and the explicitly scoped category-management operations, attaching the cookie token on the server. The backend remains responsible for authorization and authoritative pricing.
-
-The proxy exposes category GET/POST/PATCH/DELETE endpoints and a category-only PATCH for products. It does not expose product price or stock editing; those remain authorized backend operations. Only sale creation requires the checkout idempotency header. All mutations require the same-origin check. Behind a trusted reverse proxy, set server-only `POS_APP_ORIGIN` to the public origin if it differs from the origin Next.js receives; arbitrary forwarded headers are not trusted. The proxy validates endpoint paths, query values, body size, and sale idempotency keys. It does not expose provider webhooks, user administration, or unrelated catalog/stock writes, follow redirects to another upstream host, or forward client-supplied bearer tokens. Responses are not cached.
+`/api/session` logs in, reads the current user, and signs out. Access tokens are kept in an HTTP-only, SameSite=Lax cookie. The login response exposed to browser JavaScript includes the user and expiry, not the token. `/api/pos/*` forwards the documented API operations listed in `src/lib/server/proxy-policy.ts`, each with its own query-parameter allowlist, attaching the cookie token on the server. The backend remains responsible for authorization and authoritative pricing. Sale and salon-queue creation require an `X-Idempotency-Key`. All mutations require the same-origin check. Behind a trusted reverse proxy, set server-only `POS_APP_ORIGIN` to the public origin if it differs from the origin Next.js receives; arbitrary forwarded headers are not trusted. The proxy validates endpoint paths, query values, body size, and idempotency keys; `/reports/sales.csv` is the only non-JSON response it passes through, as a CSV download. It does not expose provider webhooks or `/auth/*` (served by `/api/session`), follow redirects to another upstream host, or forward client-supplied bearer tokens. Responses are not cached.
 
 Core API types are generated from the root `openapi.yaml`:
 
