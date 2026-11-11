@@ -13,7 +13,7 @@ import (
 	"github.com/lib/pq"
 )
 
-//go:embed schema.sql category_schema.sql
+//go:embed schema.sql category_schema.sql payment_schema.sql
 var schema embed.FS
 
 type Repo struct {
@@ -47,7 +47,7 @@ func (r *Repo) Ping(ctx context.Context) error {
 		return err
 	}
 	var ready bool
-	err := sqlx.GetContext(ctx, r.q, &ready, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=4) AND to_regclass('sale_items') IS NOT NULL AND to_regclass('outbox_jobs') IS NOT NULL")
+	err := sqlx.GetContext(ctx, r.q, &ready, "SELECT (SELECT count(*)=2 FROM schema_migrations WHERE version IN (4,6)) AND to_regclass('sale_items') IS NOT NULL AND to_regclass('outbox_jobs') IS NOT NULL")
 	if err != nil {
 		return err
 	}
@@ -61,7 +61,7 @@ func (r *Repo) Ping(ctx context.Context) error {
 // transaction. The base file re-creates shared trigger functions on every run, so the additive
 // files that extend them must always be replayed afterwards.
 func (r *Repo) Migrate(ctx context.Context) error {
-	files := []string{"schema.sql", "category_schema.sql"}
+	files := []string{"schema.sql", "category_schema.sql", "payment_schema.sql"}
 	statements := make([]string, 0, len(files))
 	for _, name := range files {
 		b, err := schema.ReadFile(name)

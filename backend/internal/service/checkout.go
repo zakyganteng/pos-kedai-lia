@@ -55,6 +55,9 @@ func (s *Service) CreateSale(ctx context.Context, u model.User, line, key string
 		now := s.Now()
 		sale = model.Sale{ID: lib.ID(), BusinessLineID: line, CustomerID: input.CustomerID, CashierID: u.ID, Status: "pending_payment", Items: []model.Item{}, CashReceived: input.CashReceived, CreatedAt: now}
 		sale.Payment = model.Payment{ID: lib.ID(), SaleID: sale.ID, Method: input.PaymentMethod, Status: "pending", Currency: "IDR", CreatedAt: now}
+		if input.PaymentMethod == "qris" {
+			sale.Payment.Provider = s.Payment.Name()
+		}
 		seen := map[string]bool{}
 		for _, v := range sortedItems(input.Items) {
 			if !lib.UUID(v.ItemID) || v.Quantity < 1 || v.Quantity > 1000 || (v.ItemType != "product" && v.ItemType != "service") {
@@ -124,6 +127,9 @@ func (s *Service) CreateSale(ctx context.Context, u model.User, line, key string
 		}
 		sale.Subtotal = sale.Total
 		sale.Payment.Amount = sale.Total
+		if input.PaymentMethod == "qris" && s.Payment.Name() == "borderpay" && sale.Total == 0 {
+			return lib.Invalid("Borderpay QRIS requires a positive sale total")
+		}
 		if input.PaymentMethod == "cash" {
 			if *input.CashReceived < sale.Total {
 				return lib.Invalid("Cash received is below sale total")
@@ -158,6 +164,7 @@ func (s *Service) CreateSale(ctx context.Context, u model.User, line, key string
 func (s *Service) startIntent(ctx context.Context, id string) (model.Sale, error) {
 	var sale model.Sale
 	var providerErr error
+	recovered := false
 	err := s.Repo.WithinTx(ctx, func(r *repo.Repo) error {
 		b, _, e := r.Get(ctx, "sales", id, true)
 		if e != nil {
@@ -167,12 +174,17 @@ func (s *Service) startIntent(ctx context.Context, id string) (model.Sale, error
 		if e != nil {
 			return e
 		}
+		if (sale.Payment.Provider != "" && sale.Payment.Provider != s.Payment.Name()) || (s.Payment.Name() == "borderpay" && sale.Payment.Provider != "borderpay") {
+			return lib.Conflict("Payment belongs to a different provider; reconcile it before changing providers")
+		}
 		if sale.Payment.Status != "pending" || sale.Payment.QRContent != nil {
 			return nil
 		}
 		intent, e := s.Payment.Create(ctx, sale)
 		sale.Payment.IntentAttempts++
-		if e != nil || intent.MerchantReference != sale.ID || intent.Amount != sale.Total || intent.Currency != "IDR" || intent.Status != "pending" || len(intent.PaymentID) < 1 || len(intent.PaymentID) > 200 || len(intent.QRContent) < 1 || len(intent.QRContent) > 4096 || intent.ExpiresAt.IsZero() || !intent.ExpiresAt.After(sale.CreatedAt) || intent.ExpiresAt.After(s.Now().Add(24*time.Hour)) {
+		recoveredTerminal := s.Payment.Name() == "borderpay" && (intent.Status == "confirmed" || intent.Status == "failed" || intent.Status == "expired")
+		validPending := intent.Status == "pending" && len(intent.QRContent) >= 1 && len(intent.QRContent) <= 4096 && !intent.ExpiresAt.IsZero() && intent.ExpiresAt.After(sale.CreatedAt) && !intent.ExpiresAt.After(s.Now().Add(24*time.Hour))
+		if e != nil || intent.MerchantReference != sale.ID || intent.Amount != sale.Total || intent.Currency != "IDR" || len(intent.PaymentID) < 1 || len(intent.PaymentID) > 200 || (!validPending && !recoveredTerminal) {
 			providerErr = &lib.Error{Status: 502, Code: "PAYMENT_PROVIDER_ERROR", Message: "Payment intent unresolved; automatic recovery is scheduled, retry with the same idempotency key"}
 			code := "INTENT_UNRESOLVED"
 			sale.Payment.IntentError = &code
@@ -182,14 +194,32 @@ func (s *Service) startIntent(ctx context.Context, id string) (model.Sale, error
 			}
 			next := s.Now().Add(time.Duration(1<<uint(backoff-1)) * 15 * time.Second)
 			sale.Payment.NextIntentAt = &next
+			var rejected interface{ Retryable() bool }
+			if errors.As(e, &rejected) && !rejected.Retryable() {
+				code = "INTENT_REJECTED"
+				sale.Payment.IntentError = &code
+				sale.Payment.NextIntentAt = nil
+				recovered = recoveredTerminal
+				providerErr = &lib.Error{Status: 502, Code: "PAYMENT_PROVIDER_ERROR", Message: "Payment provider rejected the request; correct the integration and retry the same idempotency key"}
+			}
 			return s.saveSale(ctx, r, sale, false)
 		}
 		sale.Payment.NextIntentAt = nil
 		sale.Payment.IntentError = nil
 		sale.Payment.GatewayReference = &intent.PaymentID
-		sale.Payment.QRContent = &intent.QRContent
-		expires := intent.ExpiresAt.UTC()
-		sale.Payment.ExpiresAt = &expires
+		if intent.QRContent != "" {
+			sale.Payment.QRContent = &intent.QRContent
+		}
+		if !intent.ExpiresAt.IsZero() {
+			expires := intent.ExpiresAt.UTC()
+			sale.Payment.ExpiresAt = &expires
+		}
+		sale.Payment.GatewayMode = intent.Mode
+		sale.Payment.CustomerPays = intent.CustomerPays
+		if s.Payment.Name() == "borderpay" && !recoveredTerminal {
+			next := s.Now().Add(15 * time.Second)
+			sale.Payment.NextStatusAt = &next
+		}
 		return s.saveSale(ctx, r, sale, false)
 	})
 	if err != nil {
@@ -198,6 +228,11 @@ func (s *Service) startIntent(ctx context.Context, id string) (model.Sale, error
 	if providerErr == nil {
 		if err = s.reconcileRecovered(ctx, id); err != nil {
 			return sale, err
+		}
+		if recovered {
+			if err = s.refreshBorderpay(ctx, id); err != nil {
+				return sale, err
+			}
 		}
 		b, _, e := s.Repo.Get(ctx, "sales", id, false)
 		if e == nil {
@@ -225,7 +260,21 @@ func (s *Service) Sale(ctx context.Context, u model.User, id string) (model.Sale
 	if err = Authorize(u, line, ""); err != nil {
 		return model.Sale{}, err
 	}
-	return lib.Decode[model.Sale](b)
+	sale, err := lib.Decode[model.Sale](b)
+	if err != nil {
+		return model.Sale{}, err
+	}
+	if sale.Payment.Provider == "borderpay" && (sale.Payment.Status == "pending" || sale.Payment.Status == "expired") {
+		if err = s.refreshBorderpay(ctx, id); err != nil {
+			return model.Sale{}, err
+		}
+		b, _, err = s.Repo.Get(ctx, "sales", id, false)
+		if err != nil {
+			return model.Sale{}, err
+		}
+		return lib.Decode[model.Sale](b)
+	}
+	return sale, nil
 }
 
 func (s *Service) VoidSale(ctx context.Context, u model.User, id string, reason string) (model.Sale, error) {
@@ -286,12 +335,41 @@ func (s *Service) PaymentState(ctx context.Context, u model.User, id string) (mo
 	if err = Authorize(u, line, ""); err != nil {
 		return model.Payment{}, err
 	}
-	return lib.Decode[model.Payment](b)
+	payment, err := lib.Decode[model.Payment](b)
+	if err != nil {
+		return model.Payment{}, err
+	}
+	if payment.Provider == "borderpay" && (payment.Status == "pending" || payment.Status == "expired") {
+		if err = s.refreshBorderpay(ctx, payment.SaleID); err != nil {
+			return model.Payment{}, err
+		}
+		b, _, err = s.Repo.Get(ctx, "payments", id, false)
+		if err != nil {
+			return model.Payment{}, err
+		}
+		return lib.Decode[model.Payment](b)
+	}
+	return payment, nil
 }
 
 func (s *Service) applyPayment(ctx context.Context, r *repo.Repo, sale *model.Sale, to string, at time.Time) error {
-	if !lib.PaymentTransition(sale.Payment.Status, to) {
+	if !s.paymentTransition(*sale, to) {
 		return lib.Conflict("Terminal payment state cannot be reopened")
+	}
+	late := sale.Payment.Status == "expired" && to == "confirmed"
+	if late {
+		for _, v := range sale.Items {
+			if !v.StockTracked {
+				continue
+			}
+			st, e := r.Stock(ctx, v.ItemID, true)
+			if e != nil {
+				return e
+			}
+			if st.Quantity-st.ReservedQuantity < int64(v.Quantity) {
+				return lib.Conflict("Late paid payment requires stock reconciliation; available stock is insufficient")
+			}
+		}
 	}
 	for _, v := range sale.Items {
 		if !v.StockTracked {
@@ -301,10 +379,12 @@ func (s *Service) applyPayment(ctx context.Context, r *repo.Repo, sale *model.Sa
 		if e != nil {
 			return e
 		}
-		if st.ReservedQuantity < int64(v.Quantity) {
+		if !late && st.ReservedQuantity < int64(v.Quantity) {
 			return errors.New("reservation ledger inconsistent")
 		}
-		st.ReservedQuantity -= int64(v.Quantity)
+		if !late {
+			st.ReservedQuantity -= int64(v.Quantity)
+		}
 		if to == "confirmed" {
 			st.Quantity -= int64(v.Quantity)
 		}
@@ -318,6 +398,10 @@ func (s *Service) applyPayment(ctx context.Context, r *repo.Repo, sale *model.Sa
 		}
 	}
 	sale.Payment.Status = to
+	if sale.Payment.Provider == "borderpay" {
+		sale.Payment.NextStatusAt = nil
+		sale.Payment.StatusError = nil
+	}
 	if to == "confirmed" {
 		sale.Status = "paid"
 		at = at.UTC()
@@ -351,7 +435,14 @@ func (s *Service) Webhook(ctx context.Context, provider, key, signature string, 
 	if event.Provider != "" && (event.Provider != provider || !validation.Text(event.Provider, 40)) {
 		return "", lib.Invalid("Event provider does not match the verifying adapter")
 	}
-	bodyHash := hash(string(body))
+	return s.paymentEvent(ctx, paymentEventData{Event: event}, hash(string(body)))
+}
+
+func (s *Service) paymentTransition(sale model.Sale, to string) bool {
+	return lib.PaymentTransition(sale.Payment.Status, to) || (s.Payment.Name() == "borderpay" && sale.Payment.Provider == "borderpay" && sale.Payment.Status == "expired" && to == "confirmed")
+}
+
+func (s *Service) paymentEvent(ctx context.Context, event paymentEventData, bodyHash string) (string, error) {
 	outcome := ""
 	var resultErr error
 	err := s.Repo.WithinTx(ctx, func(r *repo.Repo) error {
@@ -388,9 +479,12 @@ func (s *Service) Webhook(ctx context.Context, provider, key, signature string, 
 		if to == "succeeded" {
 			to = "confirmed"
 		}
-		if event.OccurredAt.Before(s.Now().Add(-24*time.Hour)) || event.OccurredAt.After(s.Now().Add(5*time.Minute)) {
+		if event.Provider != "borderpay" && (event.OccurredAt.Before(s.Now().Add(-24*time.Hour)) || event.OccurredAt.After(s.Now().Add(5*time.Minute))) {
 			meta.Outcome = "stale"
 			resultErr = lib.Conflict("Stale or future event retained for review")
+		} else if !s.providerMatches(sale.Payment, event) {
+			meta.Outcome = "mismatch"
+			resultErr = lib.Conflict("Webhook provider, mode, or customer total mismatch")
 		} else if sale.Payment.Method == "qris" && sale.Payment.GatewayReference == nil && event.Amount == sale.Total && event.Currency == "IDR" {
 			meta.Outcome = "unresolved"
 		} else if sale.Payment.Method != "qris" || sale.Payment.GatewayReference == nil || *sale.Payment.GatewayReference != event.PaymentID || event.Amount != sale.Total || event.Currency != "IDR" {
@@ -398,13 +492,18 @@ func (s *Service) Webhook(ctx context.Context, provider, key, signature string, 
 			resultErr = lib.Conflict("Webhook payment reference, amount or currency mismatch")
 		} else if sale.Payment.Status == to {
 			meta.Outcome = "duplicate_state"
-		} else if !lib.PaymentTransition(sale.Payment.Status, to) {
+		} else if !s.paymentTransition(sale, to) {
 			meta.Outcome = "terminal_conflict"
 			resultErr = lib.Conflict("Late or conflicting terminal event requires review")
 		} else {
 			meta.Outcome = "applied"
 			if e = s.applyPayment(ctx, r, &sale, to, event.OccurredAt); e != nil {
-				return e
+				var conflict *lib.Error
+				if event.Provider != "borderpay" || !errors.As(e, &conflict) || conflict.Status != 409 {
+					return e
+				}
+				meta.Outcome = "terminal_conflict"
+				resultErr = e
 			}
 		}
 		outcome = meta.Outcome
@@ -422,6 +521,20 @@ func (s *Service) Expire(ctx context.Context) error {
 		return e
 	}
 	for _, id := range ids {
+		b, _, readErr := s.Repo.Get(ctx, "sales", id, false)
+		if readErr != nil {
+			return readErr
+		}
+		paymentSale, readErr := lib.Decode[model.Sale](b)
+		if readErr != nil {
+			return readErr
+		}
+		if paymentSale.Payment.Provider == "borderpay" {
+			if e = s.refreshBorderpay(ctx, id); e != nil {
+				return e
+			}
+			continue
+		}
 		e = s.Repo.WithinTx(ctx, func(r *repo.Repo) error {
 			b, _, e := r.Get(ctx, "sales", id, true)
 			if e != nil {

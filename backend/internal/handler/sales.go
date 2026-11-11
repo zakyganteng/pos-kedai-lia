@@ -88,6 +88,11 @@ func (a *API) Webhook(c *gin.Context) {
 		a.fail(c, e)
 		return
 	}
+	if c.Param("provider") == "borderpay" {
+		out, err := a.Service.BorderpayWebhook(c.Request.Context(), c.GetHeader("x-borderpay-token"), c.GetHeader("x-borderpay-event"), c.GetHeader("x-borderpay-mode"), b)
+		a.result(c, 200, map[string]string{"outcome": out}, err)
+		return
+	}
 	out, e := a.Service.Webhook(c.Request.Context(), c.Param("provider"), c.GetHeader("X-Idempotency-Key"), c.GetHeader("X-Webhook-Signature"), b)
 	a.result(c, 200, map[string]string{"outcome": out}, e)
 }

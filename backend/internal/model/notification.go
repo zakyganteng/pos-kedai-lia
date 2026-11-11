@@ -27,6 +27,11 @@ type PaymentProvider interface {
 	Verify([]byte, string) error
 }
 
+type PaymentReconciler interface {
+	Lookup(context.Context, string) (ProviderPayment, error)
+	DecodeWebhook([]byte, string, string) (ProviderEvent, error)
+}
+
 type NotificationProvider interface {
 	Name() string
 	Send(context.Context, string, string, string) error

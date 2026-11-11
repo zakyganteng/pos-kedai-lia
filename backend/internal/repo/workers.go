@@ -83,7 +83,7 @@ func (r *Repo) FinishDelivery(ctx context.Context, d model.Delivery, success, fa
 
 func (r *Repo) DueIntents(ctx context.Context, now time.Time) ([]string, error) {
 	ids := []string{}
-	err := sqlx.SelectContext(ctx, r.q, &ids, `SELECT body->>'saleId' FROM records WHERE kind='payments' AND body->>'status'='pending' AND body->>'method'='qris' AND ((body->>'gatewayReference' IS NULL AND (body->>'nextIntentAt' IS NULL OR (body->>'nextIntentAt')::timestamptz <= $1)) OR (body->>'gatewayReference' IS NOT NULL AND EXISTS(SELECT 1 FROM payment_events e WHERE e.body->>'saleId'=records.body->>'saleId' AND e.body->>'outcome'='unresolved'))) ORDER BY created_at,id LIMIT 20`, now)
+	err := sqlx.SelectContext(ctx, r.q, &ids, `SELECT body->>'saleId' FROM records WHERE kind='payments' AND body->>'status'='pending' AND body->>'method'='qris' AND body->>'intentError' IS DISTINCT FROM 'INTENT_REJECTED' AND ((body->>'gatewayReference' IS NULL AND (body->>'nextIntentAt' IS NULL OR (body->>'nextIntentAt')::timestamptz <= $1)) OR (body->>'gatewayReference' IS NOT NULL AND EXISTS(SELECT 1 FROM payment_events e WHERE e.body->>'saleId'=records.body->>'saleId' AND e.body->>'outcome'='unresolved'))) ORDER BY created_at,id LIMIT 20`, now)
 	return ids, err
 }
 

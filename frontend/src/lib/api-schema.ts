@@ -269,7 +269,10 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Get sale details and receipt data */
+        /**
+         * Get sale details and receipt data
+         * @description Pending/expired Borderpay payments are refreshed against authenticated provider status, at most once per 15 seconds per payment. Provider errors do not imply payment failure.
+         */
         get: operations["getSale"];
         put?: never;
         post?: never;
@@ -309,10 +312,40 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get payment state */
+        /**
+         * Get payment state
+         * @description Pending/expired Borderpay payments use the same throttled authenticated status refresh as sale detail.
+         */
         get: operations["getPayment"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/payments/borderpay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Receive a native Borderpay QRIS notification
+         * @description Requires the configured Borderpay adapter and matching dashboard verification token.
+         *     No POS login token, mock signature, or mock idempotency header is required.
+         *     The server validates the project slug, key mode, event/status agreement, QRIS method,
+         *     and merchant reference, then fetches authenticated Borderpay status.
+         *     Webhook amount must equal customer_pays; order_amount must match the stored sale total.
+         *     Notifications are deduplicated semantically and persisted before acknowledgment.
+         *     Paid is mapped to confirmed. A late paid after expired can confirm only when stock
+         *     is still available; otherwise reconciliation retains a terminal_conflict.
+         */
+        post: operations["receiveBorderpayWebhook"];
         delete?: never;
         options?: never;
         head?: never;
@@ -660,8 +693,8 @@ export interface components {
         IntegrationStatus: {
             provider: string;
             configured: boolean;
-            /** @constant */
-            productionSupported: false;
+            /** @description True for the Borderpay adapter; not deployment approval. Overall productionReady remains false. */
+            productionSupported: boolean;
         };
         UserInput: {
             name: string;
@@ -1015,8 +1048,58 @@ export interface components {
             nextIntentAt?: string | null;
             /** @description Sanitized recovery error code */
             intentError?: string | null;
+            /** @enum {string} */
+            readonly provider?: "mock" | "borderpay";
+            /** @enum {string} */
+            readonly gatewayMode?: "test" | "live";
+            /** @description Borderpay customer-payable total, including any customer-borne fees. Payment amount remains the original order total. */
+            readonly customerPays?: number;
+            /**
+             * Format: date-time
+             * @description Earliest next automatic Borderpay status lookup.
+             */
+            readonly nextStatusAt?: string;
+            /**
+             * @description Last provider lookup failed; throttled reads continue reporting the failure until verification succeeds.
+             * @constant
+             */
+            readonly statusError?: "STATUS_LOOKUP_FAILED";
             /** Format: date-time */
             createdAt: string;
+        };
+        /** @description Native vendor notification. Unknown provider fields are accepted; duplicate JSON keys are rejected. */
+        BorderpayWebhookEvent: {
+            /** @enum {string} */
+            event: "payment.paid" | "payment.expired" | "payment.failed";
+            /** @enum {string} */
+            mode: "test" | "live";
+            data: {
+                /** @description Must equal PAYMENT_PROJECT_SLUG. */
+                slug: string;
+                /**
+                 * @description Optional nested mode must agree with the top-level mode.
+                 * @enum {string}
+                 */
+                mode?: "test" | "live";
+                /**
+                 * Format: uuid
+                 * @description POS sale UUID.
+                 */
+                reference_id: string;
+                /** @description When present and nonempty */
+                order_id?: string;
+                /**
+                 * @description Must agree with event.
+                 * @enum {string}
+                 */
+                status: "paid" | "expired" | "failed";
+                /** @description Gross paid by customer */
+                amount: number;
+                /** @constant */
+                method: "qris";
+                fee?: number;
+                merchant_receives?: number;
+            };
         };
         /**
          * @description Normalized payment event produced by a provider adapter. Unknown fields are rejected, so any
@@ -1927,7 +2010,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
-            /** @description External intent unresolved. Retry same idempotency key; background recovery also retries automatically. Reservations remain held until authoritative expiry or verified terminal event. */
+            /** @description External intent unresolved or rejected. Retry the same idempotency key after correcting definitive rejections; uncertain failures also retry automatically. Reservations remain held until authoritative expiry or verified terminal event. */
             502: {
                 headers: {
                     [name: string]: unknown;
@@ -1970,6 +2053,25 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description Borderpay status could not be verified */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The original payment provider is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     voidSale: {
@@ -2029,6 +2131,71 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description Borderpay status could not be verified */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The original payment provider is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    receiveBorderpayWebhook: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Dashboard webhook verification token, compared using a timing-safe helper. */
+                "x-borderpay-token": string;
+                /** @description When supplied, must equal the body event. */
+                "x-borderpay-event"?: "payment.paid" | "payment.expired" | "payment.failed";
+                /** @description When supplied, must equal the body mode and configured API key mode. */
+                "x-borderpay-mode"?: "test" | "live";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BorderpayWebhookEvent"];
+            };
+        };
+        responses: {
+            /** @description Verified event applied, already processed, or retained for intent recovery */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        outcome: "applied" | "duplicate" | "duplicate_state" | "unresolved";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Conflict"];
+            /** @description Borderpay status lookup failed; no payment success assumed */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     receivePaymentWebhook: {
@@ -2041,8 +2208,8 @@ export interface operations {
                 "X-Webhook-Signature": string;
             };
             path: {
-                /** @description Configured provider adapter name; `mock` in development. */
-                provider: string;
+                /** @description Development mock adapter. Native Borderpay uses the separately documented concrete route. */
+                provider: "mock";
             };
             cookie?: never;
         };

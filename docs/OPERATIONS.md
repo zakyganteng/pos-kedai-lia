@@ -52,7 +52,9 @@ Compose passes only the variables each service needs. The backend receives `DATA
 | --- | --- |
 | `PAYMENT_PROVIDER=disabled` | Cash works; QRIS is unavailable. No locally invented QR or payment success. |
 | `PAYMENT_PROVIDER=mock` | Non-production only; calls a separately deployed external mock. |
+| `PAYMENT_PROVIDER=borderpay` | Server-side Borderpay QRIS adapter; `bp_test_` keys use sandbox, `bp_live_` keys move real money. |
 | `PAYMENT_BASE_URL`, `PAYMENT_API_KEY`, `PAYMENT_WEBHOOK_SECRET` | External provider endpoint and credentials. Keep them server-side. |
+| `PAYMENT_PROJECT_SLUG` | Required for Borderpay; must match the dashboard project and incoming webhook `data.slug`. |
 | `NOTIFICATION_PROVIDER=disabled` | Notifications remain visibly undelivered/failed; payments remain valid. |
 | `NOTIFICATION_PROVIDER=http` | Non-production vendor-neutral HTTP contract; not evidence of compatibility with a selected WhatsApp vendor. |
 | `NOTIFICATION_BASE_URL`, `NOTIFICATION_API_KEY`, `NOTIFICATION_DESTINATION` | Approved notification endpoint, credential and recipient. |
@@ -60,7 +62,47 @@ Compose passes only the variables each service needs. The backend receives `DATA
 
 For the separate mock, the normalized webhook route is `/api/v1/webhooks/payments/mock`. Its signature covers exact request bytes using HMAC SHA256; `X-Webhook-Signature` carries hex (optional `sha256=` prefix), and `X-Idempotency-Key` equals the body `eventId`. Confirm the external adapter's request path and payload against its own contract before testing. Docker `localhost` means that container, not a host-run mock. Supply a reachable private endpoint. Do not disable certificate verification to work around connectivity.
 
-The backend rejects both `mock` payments and `http` notifications in production; both providers must remain `disabled` until production adapters exist. Production is blocked on a selected QRIS vendor, its implemented/approved adapter and signature scheme, approved WhatsApp contract/templates/recipient consent, successful UAT, backup retention approval, and a restore rehearsal in the hosting environment. `productionReady=false` is not cleared by merely adding credentials. A separately approved cash-only pilot still needs HTTPS, replaced default owner credentials, backups and explicit approval for unavailable integrations.
+The backend rejects `mock` payments and `http` notifications in production. Borderpay is a supported payment adapter, but live deployment still requires merchant-specific sandbox checks, approved WhatsApp contract/templates/recipient consent, successful UAT, backup retention approval, and a restore rehearsal in the hosting environment. Integration status reports Borderpay as production-supported while `productionReady=false` remains unchanged: adding credentials does not approve a deployment. A separately approved cash-only pilot still needs HTTPS, replaced default owner credentials, backups and explicit approval for unavailable integrations.
+
+## Borderpay QRIS
+
+The adapter follows the [Borderpay guides](https://borderpay.id/docs) and [OpenAPI contract](https://borderpay.id/openapi.json). Scope is the existing cashier QRIS flow, not virtual accounts, e-wallets, payouts, or refunds.
+
+1. Create a Borderpay project and enable QRIS in its dashboard. Keep existing POS deployments on merchant-borne fees if the cashier must display the exact customer-payable total without a separate fee display.
+2. Set these values in your existing, Git-ignored `.env` or deployment secret store. The values below are placeholders, not usable credentials:
+
+   ```dotenv
+   PAYMENT_PROVIDER=borderpay
+   PAYMENT_BASE_URL=https://borderpay.id/api/v1
+   PAYMENT_API_KEY=bp_test_REPLACE_WITH_PROJECT_KEY
+   PAYMENT_PROJECT_SLUG=replace-with-project-slug
+   PAYMENT_WEBHOOK_SECRET=replace-with-dashboard-verification-token
+   ```
+
+   The verification token must match the dashboard and contain at least 16 bytes. Do not paste credentials into chat, frontend variables, source files, screenshots, or logs. Leave `PAYMENT_BASE_URL` empty to use the official default. HTTPS is required; HTTP loopback is accepted only for local automated doubles with `APP_ENV=test` and a test key.
+3. Configure the dashboard webhook URL as `https://<your-public-host>/api/v1/webhooks/payments/borderpay`. Forward it directly to Go using the reverse-proxy configuration below. A local `localhost` URL is not reachable by Borderpay. The callback uses `x-borderpay-token`, with optional event/mode headers, not the mock HMAC or mock idempotency headers.
+4. Rebuild/start with `make dev` (or apply migration 6 and restart the deployed API). Cash checkout remains available independently of Borderpay. Do not switch provider or test/live key mode while payments are outstanding; old payments retain their provider, mode, and customer-payable total.
+5. Create one QRIS sale in the existing cashier. The server sends integer rupiah, `method=qris`, and the sale UUID as `reference_id`. Rendering the provider's raw `qr_string` requires no browser API key or Borderpay widget.
+6. With a `bp_test_` key only, mark that reference paid using the official sandbox endpoint:
+
+   ```sh
+   # Supply the test key in this shell without committing it or writing it into command history.
+   curl --fail-with-body -X POST \
+     "https://borderpay.id/api/v1/payments/<sale-uuid>/simulate" \
+     -H "Authorization: Bearer ${PAYMENT_API_KEY}"
+   ```
+
+   Confirm that the callback arrives and the cashier becomes paid. The cashier's existing sale polling and `GET /payments/{paymentId}` also perform authenticated provider lookups, throttled to one every 15 seconds per payment. Provider errors are surfaced, not treated as payment failure. Respect Borderpay's per-key rate limit when sizing deployments.
+
+Creation retries reuse the same sale UUID. Lost responses, including an already-paid replay, recover the original charge rather than creating a second reference. Definitive provider rejections such as `401` or `422` expose `INTENT_REJECTED` and pause automatic intent retries; correct the integration, then retry the original checkout idempotency key. Uncertain/network failures retain reservations and use bounded backoff.
+
+The stored sale total remains the original order amount. `customerPays` stores the provider's customer-payable total, including any customer-borne fee. Webhooks are checked against that total and authenticated status; status matching uses `order_amount`, not the status endpoint's compatibility `amount` field.
+
+The expiry worker checks Borderpay before releasing a reservation; local expiry alone is not proof of provider expiry. A verified late `paid` after `expired` can confirm the sale if stock is still available. If released stock has already been sold/reserved, the event remains `terminal_conflict` for operator reconciliation, without overselling or duplicate fulfillment. Never resolve this by editing payment rows manually. Failed/voided payments are not automatically reopened; refunds are not implemented.
+
+Migration 6 preserves immutable provider/mode/totals and narrowly permits this Borderpay late-paid transition. Its down migration refuses rollback while Borderpay payment records exist. Keep backups and rehearse migrations on staging.
+
+Automated tests use disposable PostgreSQL databases and local HTTP doubles. They verify the adapter contract and order/stock invariants, not actual QRIS acceptance, merchant onboarding, live funds, or public webhook delivery. Complete the sandbox steps above with your own project before enabling `bp_live_`.
 
 ## Release and first owner
 
