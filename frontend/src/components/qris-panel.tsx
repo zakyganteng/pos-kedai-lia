@@ -5,6 +5,7 @@ import QRCode from 'qrcode';
 import { dateTime, paymentLabel } from '@/lib/format';
 import type { Payment } from '@/lib/types';
 import { Notice, StatusBadge, paymentTone } from './states';
+import { redirect } from 'next/dist/server/api-utils';
 
 /**
  * Payload markers used by non production gateways.
@@ -24,10 +25,16 @@ type QrisPanelProps = {
   payment: Payment;
   polling: boolean;
   statusCheckFailed: boolean;
+  saleId: string;
   onCheckNow: () => void;
 };
 
-export function QrisPanel({ payment, polling, statusCheckFailed, onCheckNow }: QrisPanelProps) {
+function openPaymentScreen(paymentId: string) {
+  // Redirect to https://borderpay.id/pay/:paymentId
+  window.open(`https://borderpay.id/pay/${paymentId}`, '_blank');
+}
+
+export function QrisPanel({ payment, polling, statusCheckFailed, onCheckNow, saleId }: QrisPanelProps) {
   const content = payment.qrContent ?? null;
   const [rendered, setRendered] = useState<{ content: string; url: string | null } | null>(null);
 
@@ -118,6 +125,10 @@ export function QrisPanel({ payment, polling, statusCheckFailed, onCheckNow }: Q
           <div className="btn-row">
             <button type="button" className="btn btn-secondary" onClick={onCheckNow}>
               Periksa status sekarang
+            </button>
+            {}
+            <button type="button" className="btn btn-info" onClick={() => openPaymentScreen(saleId)}>
+              [Dev] Buka Payment Screen
             </button>
           </div>
         </Notice>
