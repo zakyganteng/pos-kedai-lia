@@ -19,7 +19,6 @@ const GROUPS: { value: ReportGroupBy; label: string; managersOnly: boolean }[] =
   { value: 'day', label: 'Per hari', managersOnly: false },
   { value: 'paymentMethod', label: 'Metode pembayaran', managersOnly: false },
   { value: 'item', label: 'Per item', managersOnly: true },
-  { value: 'staff', label: 'Per staf', managersOnly: true },
 ];
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;

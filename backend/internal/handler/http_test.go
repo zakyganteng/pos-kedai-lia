@@ -64,7 +64,7 @@ func TestPaginationValidation(t *testing.T) {
 func TestActiveFilterIsRejectedWhereUnsupported(t *testing.T) {
 	a := &API{Service: &service.Service{}}
 	line := "11111111-1111-4111-8111-111111111111"
-	for _, kind := range []string{"products", "services", "customers", "staff"} {
+	for _, kind := range []string{"products", "services", "customers"} {
 		r := httptest.NewRequest("GET", "/?businessLineId="+line+"&active=true", nil)
 		c, _ := newTestContext(r)
 		f, e := a.filter(c, kind)

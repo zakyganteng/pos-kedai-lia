@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { queueStatusLabel, timeOfDay } from '@/lib/format';
-import type { QueueEntry, QueueStatus, Staff } from '@/lib/types';
+import type { QueueEntry, QueueStatus } from '@/lib/types';
 import type { MutationResult } from '@/hooks/use-mutation';
 import { StatusBadge, WriteError } from './states';
 
@@ -19,13 +19,9 @@ export type QueueEntryCardProps = {
   customerName: string | null;
   /** Resolved service names, falling back to the id for an unreadable one. */
   serviceNames: string[];
-  /** Active staff, plus this entry's own staff even when archived. */
-  staffOptions: Staff[];
-  staffName: string | null;
   mutate: MutationResult;
   onStatus: (entry: QueueEntry, status: QueueStatus) => void;
   onCancel: (entry: QueueEntry) => void;
-  onStaff: (entry: QueueEntry, staffId: string | null) => void;
   onLinkSale: (entry: QueueEntry) => void;
   onRecheck: (key: string) => () => void;
 };
@@ -40,28 +36,22 @@ export function QueueEntryCard({
   entry,
   customerName,
   serviceNames,
-  staffOptions,
-  staffName,
   mutate,
   onStatus,
   onCancel,
-  onStaff,
   onLinkSale,
   onRecheck,
 }: QueueEntryCardProps) {
   const statusKey = `status:${entry.id}`;
-  const staffKey = `staff:${entry.id}`;
   const linkKey = `link:${entry.id}`;
   const cancelKey = `cancel:${entry.id}`;
 
   const statusFailure = mutate.failureOf(statusKey);
-  const staffFailure = mutate.failureOf(staffKey);
   const linkFailure = mutate.failureOf(linkKey);
   const cancelFailure = mutate.failureOf(cancelKey);
 
   const open = entry.status === 'waiting' || entry.status === 'in_service';
   const statusBusy = mutate.isPending(statusKey);
-  const staffBusy = mutate.isPending(staffKey);
 
   return (
     <li className="queue-card">
@@ -76,7 +66,6 @@ export function QueueEntryCard({
           </span>
           <span className="queue-card-badges">
             <StatusBadge label={queueStatusLabel(entry.status)} tone={queueTone(entry.status)} />
-            <span className="meta">{staffName ?? 'Tanpa staf'}</span>
           </span>
         </span>
       </div>
@@ -105,34 +94,6 @@ export function QueueEntryCard({
           <dd>{timeOfDay(entry.completedAt)}</dd>
         </div>
       </dl>
-
-      {open ? (
-        <div className="field">
-          <label className="field-label" htmlFor={`antrean-staf-${entry.id}`}>
-            Staf yang melayani
-          </label>
-          <select
-            id={`antrean-staf-${entry.id}`}
-            className="select"
-            value={entry.staffId ?? ''}
-            disabled={staffBusy}
-            onChange={(event) => onStaff(entry, event.target.value === '' ? null : event.target.value)}
-          >
-            <option value="">Tanpa staf</option>
-            {staffOptions.map((staff) => (
-              <option key={staff.id} value={staff.id}>
-                {staff.name}
-                {staff.active ? '' : ' (diarsipkan)'}
-              </option>
-            ))}
-          </select>
-          {staffBusy ? (
-            <p className="field-hint" role="status">
-              Menyimpan staf…
-            </p>
-          ) : null}
-        </div>
-      ) : null}
 
       <div className="btn-row">
         {entry.status === 'waiting' ? (
@@ -202,13 +163,6 @@ export function QueueEntryCard({
           failure={statusFailure}
           unchangedNote={`Antrean #${entry.queueNumber} masih berstatus ${queueStatusLabel(entry.status)}.`}
           onRecheck={onRecheck(statusKey)}
-        />
-      ) : null}
-      {staffFailure !== null ? (
-        <WriteError
-          failure={staffFailure}
-          unchangedNote={`Staf antrean #${entry.queueNumber} tidak berubah.`}
-          onRecheck={onRecheck(staffKey)}
         />
       ) : null}
       {cancelFailure !== null ? (

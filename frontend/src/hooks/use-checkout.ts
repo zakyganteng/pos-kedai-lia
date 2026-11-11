@@ -63,6 +63,20 @@ const RELOADED_MID_REQUEST: Failure = {
   fieldErrors: [],
 };
 
+const CHECKOUT_FORMAT_CHANGED: Failure = {
+  kind: 'uncertain',
+  status: 0,
+  code: 'CHECKOUT_FORMAT_CHANGED',
+  message: 'Format permintaan lama ini sudah tidak didukung. Periksa daftar struk untuk memastikan hasil transaksi sebelum membuang permintaan.',
+  fieldErrors: [],
+};
+
+function hasLegacyAttribution(body: SaleCreateInput): boolean {
+  return Array.isArray(body.items) && body.items.some(
+    (item) => typeof item === 'object' && item !== null && 'staffId' in item,
+  );
+}
+
 function parseStoredAttempt(value: unknown): StoredAttempt | null {
   if (typeof value !== 'object' || value === null) return null;
   const raw = value as Partial<StoredAttempt>;
@@ -165,6 +179,12 @@ export function useCheckout(workspace: Workspace, options: { onSessionExpired: (
   const send = useCallback(
     async (attempt: CheckoutAttempt) => {
       if (inFlight.current) return;
+      // Rewriting a frozen legacy body breaks its idempotency fingerprint.
+      if (hasLegacyAttribution(attempt.body)) {
+        setStoredJson(checkoutKey, { ...attempt, state: 'unresolved' } satisfies StoredAttempt);
+        setTransient({ kind: 'failed', key: attempt.key, failure: CHECKOUT_FORMAT_CHANGED });
+        return;
+      }
       inFlight.current = true;
       setStoredJson(checkoutKey, { ...attempt, state: 'sending' } satisfies StoredAttempt);
       setTransient({ kind: 'sending', key: attempt.key });
@@ -225,7 +245,9 @@ export function useCheckout(workspace: Workspace, options: { onSessionExpired: (
       phase = { name: 'sending', attempt };
     } else {
       const failure =
-        transient?.kind === 'failed' && transient.key === stored.key
+        hasLegacyAttribution(attempt.body)
+          ? CHECKOUT_FORMAT_CHANGED
+          : transient?.kind === 'failed' && transient.key === stored.key
           ? transient.failure
           : RELOADED_MID_REQUEST;
       phase =

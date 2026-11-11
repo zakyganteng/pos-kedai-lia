@@ -20,7 +20,7 @@ func (s *Service) SalesReport(ctx context.Context, u model.User, line, from, to,
 	if group == "" {
 		group = "day"
 	}
-	if group != "day" && group != "paymentMethod" && group != "item" && group != "staff" {
+	if group != "day" && group != "paymentMethod" && group != "item" {
 		return dto.Report{}, lib.Invalid("Invalid report grouping")
 	}
 	if u.Role == "cashier" && (group != "day" && group != "paymentMethod") {

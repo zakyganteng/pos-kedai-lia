@@ -19,7 +19,7 @@ const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9._:-]{1,200}$/;
 export const SALE_STATUSES = ['pending_payment', 'paid', 'cancelled', 'voided'] as const;
 export const QUEUE_STATUSES = ['waiting', 'in_service', 'completed', 'cancelled'] as const;
 export const NOTIFICATION_STATUSES = ['queued', 'sent', 'failed'] as const;
-export const REPORT_GROUPS = ['day', 'paymentMethod', 'item', 'staff'] as const;
+export const REPORT_GROUPS = ['day', 'paymentMethod', 'item'] as const;
 export const RECONCILIATION_OUTCOMES = [
   'applied',
   'duplicate_state',
@@ -124,18 +124,13 @@ export const ROUTES: readonly RouteSpec[] = [
   route('PATCH', 'services/:uuid'),
   route('DELETE', 'services/:uuid'),
 
-  // Customers and staff
+  // Customers
   route('GET', 'customers', { ...PAGED, search: Q.search, active: Q.active }),
   route('POST', 'customers', LINE),
   route('GET', 'customers/:uuid'),
   route('PATCH', 'customers/:uuid'),
   route('DELETE', 'customers/:uuid'),
 
-  route('GET', 'staff', { ...PAGED, search: Q.search, active: Q.active }),
-  route('POST', 'staff', LINE),
-  route('GET', 'staff/:uuid'),
-  route('PATCH', 'staff/:uuid'),
-  route('DELETE', 'staff/:uuid'),
 
   // Inventory
   route('GET', 'inventory', { ...PAGED, lowStock: Q.lowStock }),

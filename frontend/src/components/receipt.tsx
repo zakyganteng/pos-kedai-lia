@@ -19,7 +19,6 @@ export function isPrintable(sale: Sale): boolean {
  */
 export function Receipt({ sale, line }: { sale: Sale; line: BusinessLine | null }) {
   const payment = sale.payment;
-  const staffed = sale.items.some((item) => item.staffId);
 
   return (
     <article className="receipt" aria-labelledby="receipt-heading">
@@ -60,7 +59,6 @@ export function Receipt({ sale, line }: { sale: Sale; line: BusinessLine | null 
             <tr key={item.id}>
               <td>
                 {item.displayName}
-                {item.staffId ? <div className="meta">Staf tercatat pada server</div> : null}
               </td>
               <td className="num">{item.quantity}</td>
               <td className="num">{rupiah(item.unitPrice)}</td>
@@ -123,11 +121,6 @@ export function Receipt({ sale, line }: { sale: Sale; line: BusinessLine | null 
         ) : null}
       </dl>
 
-      {staffed ? (
-        <p className="meta" style={{ marginTop: 'var(--s3)' }}>
-          Atribusi staf tersimpan pada transaksi di server.
-        </p>
-      ) : null}
     </article>
   );
 }

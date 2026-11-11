@@ -555,7 +555,7 @@ export function ServiceAdminPanel({ line, onSessionExpired }: ServiceAdminPanelP
               }
             />
             <p className="field-hint">
-              Opsional, maksimal {DESCRIPTION_MAX} karakter. Dibaca staf saat memilih layanan.
+              Opsional, maksimal {DESCRIPTION_MAX} karakter. Dibaca kasir saat memilih layanan.
             </p>
           </div>
 

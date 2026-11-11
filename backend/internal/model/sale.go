@@ -3,13 +3,14 @@ package model
 import "time"
 
 type Item struct {
-	ID           string  `json:"id"`
-	ItemType     string  `json:"itemType"`
-	ItemID       string  `json:"itemId"`
-	DisplayName  string  `json:"displayName"`
-	UnitPrice    int64   `json:"unitPrice"`
-	Quantity     int     `json:"quantity"`
-	LineTotal    int64   `json:"lineTotal"`
+	ID          string `json:"id"`
+	ItemType    string `json:"itemType"`
+	ItemID      string `json:"itemId"`
+	DisplayName string `json:"displayName"`
+	UnitPrice   int64  `json:"unitPrice"`
+	Quantity    int    `json:"quantity"`
+	LineTotal   int64  `json:"lineTotal"`
+	// Retained for immutable historical snapshots; new sales do not assign staff.
 	StaffID      *string `json:"staffId"`
 	StockTracked bool    `json:"stockTracked"`
 }

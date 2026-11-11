@@ -36,9 +36,6 @@ func (s *Service) CreateQueue(ctx context.Context, u model.User, line, key strin
 		if e = optionalReference(ctx, r, "customers", input.CustomerID, line); e != nil {
 			return e
 		}
-		if e = optionalReference(ctx, r, "staff", input.StaffID, line); e != nil {
-			return e
-		}
 		seen := map[string]bool{}
 		for _, id := range input.ServiceIDs {
 			if seen[id] {
@@ -54,7 +51,7 @@ func (s *Service) CreateQueue(ctx context.Context, u model.User, line, key strin
 		if e != nil {
 			return e
 		}
-		q = model.Queue{ID: lib.ID(), BusinessLineID: line, QueueNumber: number, Date: date, CustomerID: input.CustomerID, ServiceIDs: input.ServiceIDs, StaffID: input.StaffID, Note: input.Note, Status: "waiting", CreatedAt: s.Now()}
+		q = model.Queue{ID: lib.ID(), BusinessLineID: line, QueueNumber: number, Date: date, CustomerID: input.CustomerID, ServiceIDs: input.ServiceIDs, Note: input.Note, Status: "waiting", CreatedAt: s.Now()}
 		if e = r.Put(ctx, "queue", q.ID, line, q, true); e != nil {
 			return e
 		}
@@ -64,7 +61,7 @@ func (s *Service) CreateQueue(ctx context.Context, u model.User, line, key strin
 }
 
 func (s *Service) PatchQueue(ctx context.Context, u model.User, id string, m map[string]json.RawMessage) (model.Queue, error) {
-	if err := validation.Fields(m, []string{"status", "staffId", "saleId"}, nil); err != nil {
+	if err := validation.Fields(m, []string{"status", "saleId"}, nil); err != nil {
 		return model.Queue{}, err
 	}
 	var q model.Queue
@@ -82,17 +79,6 @@ func (s *Service) PatchQueue(ctx context.Context, u model.User, id string, m map
 		}
 		if q.Status == "cancelled" {
 			return lib.Conflict("Cancelled queue entry cannot change")
-		}
-		if v, ok := m["staffId"]; ok {
-			if q.Status == "completed" {
-				return lib.Conflict("Completed queue staff is immutable")
-			}
-			if e = json.Unmarshal(v, &q.StaffID); e != nil {
-				return lib.Invalid("Invalid staffId")
-			}
-			if e = optionalReference(ctx, r, "staff", q.StaffID, line); e != nil {
-				return e
-			}
 		}
 		if _, ok := m["status"]; ok {
 			var to string

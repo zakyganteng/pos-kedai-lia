@@ -5,7 +5,7 @@ import Link from 'next/link';
 import '@/styles/queue.css';
 import { api, newIdempotencyKey } from '@/lib/api';
 import { businessDate, queueStatusLabel, shortId, todayBusinessDate } from '@/lib/format';
-import type { Customer, QueueEntry, QueueStatus, SalonService, Staff } from '@/lib/types';
+import type { Customer, QueueEntry, QueueStatus, SalonService } from '@/lib/types';
 import { useSession } from '@/hooks/use-session';
 import { useLookup } from '@/hooks/use-lookup';
 import { useMutation } from '@/hooks/use-mutation';
@@ -80,11 +80,6 @@ export function QueueScreen() {
   );
   const services = useLookup<SalonService>(
     salon ? '/services' : null,
-    { businessLineId: line.id },
-    lookupOptions,
-  );
-  const staff = useLookup<Staff>(
-    salon ? '/staff' : null,
     { businessLineId: line.id },
     lookupOptions,
   );
@@ -164,17 +159,6 @@ export function QueueScreen() {
     settle(status !== '');
   };
 
-  const assignStaff = async (entry: QueueEntry, staffId: string | null) => {
-    const ok = await mutate.run(`staff:${entry.id}`, async () => {
-      await api<QueueEntry>(`/salon/queue/${entry.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ staffId }),
-      });
-    });
-    if (!ok) return;
-    settle(false);
-  };
-
   const cancelKey = cancelling === null ? null : `cancel:${cancelling.id}`;
   const cancelFailure = cancelKey === null ? null : mutate.failureOf(cancelKey);
   const cancelBusy = cancelKey !== null && mutate.isPending(cancelKey);
@@ -222,7 +206,6 @@ export function QueueScreen() {
     total: list.items.filter((entry) => entry.status === value).length,
   }));
 
-  const activeStaff = staff.items.filter((member) => member.active);
   const showEmpty =
     !list.loading && list.error === null && !list.forbidden && list.items.length === 0;
 
@@ -356,10 +339,10 @@ export function QueueScreen() {
         />
       ) : null}
 
-      {services.error !== null || staff.error !== null || customers.error !== null ? (
+      {services.error !== null || customers.error !== null ? (
         <Notice tone="warning" title="Sebagian nama belum dapat dimuat">
           <p className="meta">
-            Nomor dan status antrean tetap benar, tetapi nama layanan, staf atau pelanggan dapat
+            Nomor dan status antrean tetap benar, tetapi nama layanan atau pelanggan dapat
             tampil sebagai kode singkat.
           </p>
         </Notice>
@@ -368,10 +351,6 @@ export function QueueScreen() {
       {list.items.length > 0 ? (
         <ul className="queue-list" aria-busy={list.loading}>
           {list.items.map((entry) => {
-            const staffOptions =
-              entry.staffId && !activeStaff.some((member) => member.id === entry.staffId)
-                ? [...activeStaff, ...staff.items.filter((member) => member.id === entry.staffId)]
-                : activeStaff;
             return (
               <QueueEntryCard
                 key={entry.id}
@@ -384,19 +363,12 @@ export function QueueScreen() {
                 serviceNames={entry.serviceIds.map(
                   (id) => services.byId.get(id)?.name ?? shortId(id),
                 )}
-                staffOptions={staffOptions}
-                staffName={
-                  entry.staffId
-                    ? (staff.byId.get(entry.staffId)?.name ?? shortId(entry.staffId))
-                    : null
-                }
                 mutate={mutate}
                 onStatus={(target, next) => void changeStatus(target, next)}
                 onCancel={(target) => {
                   mutate.clear(`cancel:${target.id}`);
                   setCancelling(target);
                 }}
-                onStaff={(target, staffId) => void assignStaff(target, staffId)}
                 onLinkSale={(target) => {
                   mutate.clear(`link:${target.id}`);
                   setLinking(target);
@@ -422,7 +394,6 @@ export function QueueScreen() {
         idempotencyKey={addKey}
         services={services.items}
         servicesLoading={services.loading}
-        staff={staff.items}
         viewingDate={date}
         todayDate={today}
         mutate={mutate}

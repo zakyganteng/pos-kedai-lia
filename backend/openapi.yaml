@@ -43,8 +43,8 @@ tags:
     description: Products for the food and beverage line and services for the salon line.
   - name: Categories
     description: Editable product categories, scoped to a food and beverage line.
-  - name: Customers and staff
-    description: Customer records and salon staff records per business line.
+  - name: Customers
+    description: Customer records per business line.
   - name: Inventory
     description: Stock levels, reservations and the append-only stock movement ledger.
   - name: Sales and payments
@@ -372,7 +372,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
   /customers:
     get:
-      tags: [Customers and staff]
+      tags: [Customers]
       operationId: listCustomers
       summary: Search customers
       parameters:
@@ -391,7 +391,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
     post:
-      tags: [Customers and staff]
+      tags: [Customers]
       operationId: createCustomer
       summary: Create customer
       parameters:
@@ -411,45 +411,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
-  /staff:
-    post:
-      tags: [Customers and staff]
-      operationId: createStaff
-      summary: Create a staff member
-      x-roles: [owner, admin]
-      parameters:
-        - $ref: '#/components/parameters/BusinessLineId'
-      requestBody:
-        required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/StaffInput' } } }
-      responses:
-        '201':
-          description: Staff created
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Staff' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-    get:
-      tags: [Customers and staff]
-      operationId: listStaff
-      summary: List staff for a business line
-      parameters:
-        - $ref: '#/components/parameters/BusinessLineId'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/Search'
-        - $ref: '#/components/parameters/Active'
-      responses:
-        '200':
-          description: Staff page
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/StaffPage' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
   /inventory:
     get:
       tags: [Inventory]
@@ -763,7 +724,7 @@ paths:
       tags: [Reports]
       operationId: getSalesReport
       summary: Aggregate confirmed sales for a date range
-      description: 'Inclusive business-timezone date range of 1 to 366 days. Cashiers may only use groupBy `day` or `paymentMethod`; `item` and `staff` require owner or admin.'
+      description: 'Inclusive business-timezone date range of 1 to 366 days. Cashiers may only use groupBy `day` or `paymentMethod`; `item` requires owner or admin.'
       parameters:
         - $ref: '#/components/parameters/BusinessLineId'
         - name: from
@@ -778,7 +739,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [day, paymentMethod, item, staff]
+            enum: [day, paymentMethod, item]
             default: day
       responses:
         '200':
@@ -959,7 +920,7 @@ paths:
     parameters:
       - { name: customerId, in: path, required: true, schema: { type: string, format: uuid } }
     get:
-      tags: [Customers and staff]
+      tags: [Customers]
       operationId: getCustomer
       summary: Get customer details
       responses:
@@ -969,7 +930,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
-      tags: [Customers and staff]
+      tags: [Customers]
       operationId: updateCustomer
       summary: Update customer
       x-roles: [owner, admin]
@@ -984,47 +945,9 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
     delete:
-      tags: [Customers and staff]
+      tags: [Customers]
       operationId: archiveCustomer
       summary: Archive customer
-      x-roles: [owner, admin]
-      responses:
-        '204': { description: Archived }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-  /staff/{staffId}:
-    parameters:
-      - { name: staffId, in: path, required: true, schema: { type: string, format: uuid } }
-    get:
-      tags: [Customers and staff]
-      operationId: getStaff
-      summary: Get staff details
-      responses:
-        '200': { description: Staff, content: { application/json: { schema: { $ref: '#/components/schemas/Staff' } } } }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-    patch:
-      tags: [Customers and staff]
-      operationId: updateStaff
-      summary: Update staff
-      x-roles: [owner, admin]
-      requestBody:
-        required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/StaffPatch' } } }
-      responses:
-        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Staff' } } } }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-    delete:
-      tags: [Customers and staff]
-      operationId: archiveStaff
-      summary: Archive staff; historical sale snapshots remain
       x-roles: [owner, admin]
       responses:
         '204': { description: Archived }
@@ -1302,20 +1225,6 @@ components:
         name: { type: string, minLength: 1, maxLength: 160 }
         phone: { type: [string, 'null'], maxLength: 40 }
         active: { type: boolean }
-    StaffInput:
-      type: object
-      additionalProperties: false
-      required: [name]
-      properties:
-        name: { type: string, minLength: 1, maxLength: 160 }
-        active: { type: boolean, default: true }
-    StaffPatch:
-      type: object
-      minProperties: 1
-      additionalProperties: false
-      properties:
-        name: { type: string, minLength: 1, maxLength: 160 }
-        active: { type: boolean }
     ReconciliationOutcome:
       type: string
       enum: [applied, duplicate_state, mismatch, terminal_conflict, unmatched, stale, unresolved]
@@ -1491,16 +1400,6 @@ components:
         name: { type: string, minLength: 1, maxLength: 160 }
         phone: { type: [string, 'null'], maxLength: 40, description: 'Indonesian local or international number; normalized to E.164 before storage.' }
         active: { type: boolean, default: true }
-    Staff:
-      type: object
-      required: [id, businessLineId, name, active, createdAt, updatedAt]
-      properties:
-        id: { type: string, format: uuid }
-        businessLineId: { type: string, format: uuid }
-        name: { type: string }
-        active: { type: boolean }
-        createdAt: { type: string, format: date-time }
-        updatedAt: { type: string, format: date-time }
     InventoryItem:
       type: object
       required: [productId, productName, quantity, reservedQuantity, availableQuantity, lowStockThreshold]
@@ -1552,7 +1451,6 @@ components:
         itemType: { type: string, enum: [product, service] }
         itemId: { type: string, format: uuid }
         quantity: { type: integer, minimum: 1, maximum: 1000 }
-        staffId: { type: string, format: uuid, description: Only salon services may carry a staff attribution. }
     SaleItem:
       type: object
       required: [id, itemType, itemId, displayName, unitPrice, quantity, lineTotal, stockTracked]
@@ -1564,7 +1462,7 @@ components:
         unitPrice: { type: integer, minimum: 0 }
         quantity: { type: integer, minimum: 1 }
         lineTotal: { type: integer, minimum: 0 }
-        staffId: { type: [string, 'null'], format: uuid }
+        staffId: { type: [string, 'null'], format: uuid, readOnly: true, deprecated: true, description: 'Legacy attribution retained for historical snapshots. Null on new sales.' }
         stockTracked: { type: boolean, description: Stock-tracking snapshot used to settle reservations. }
     CreateSaleRequest:
       type: object
@@ -1711,7 +1609,6 @@ components:
           maxItems: 20
           uniqueItems: true
           items: { type: string, format: uuid }
-        staffId: { type: [string, 'null'], format: uuid }
         note: { type: [string, 'null'], maxLength: 300 }
     QueueEntryPatch:
       type: object
@@ -1719,7 +1616,6 @@ components:
       additionalProperties: false
       properties:
         status: { $ref: '#/components/schemas/QueueStatus' }
-        staffId: { type: [string, 'null'], format: uuid, description: Immutable once the entry is completed. }
         saleId: { type: string, format: uuid, description: 'Only settable on a completed entry, must reference a paid sale in the same line covering every requested service, and is immutable once set.' }
     QueueEntry:
       type: object
@@ -1733,7 +1629,7 @@ components:
         serviceIds:
           type: array
           items: { type: string, format: uuid }
-        staffId: { type: [string, 'null'], format: uuid }
+        staffId: { type: [string, 'null'], format: uuid, readOnly: true, deprecated: true, description: 'Legacy attribution retained for historical entries. Null on new entries.' }
         saleId: { type: [string, 'null'], format: uuid }
         note: { type: [string, 'null'] }
         status: { $ref: '#/components/schemas/QueueStatus' }
@@ -1764,12 +1660,6 @@ components:
         - type: object
           properties:
             data: { type: array, items: { $ref: '#/components/schemas/Customer' } }
-    StaffPage:
-      allOf:
-        - $ref: '#/components/schemas/PageBase'
-        - type: object
-          properties:
-            data: { type: array, items: { $ref: '#/components/schemas/Staff' } }
     InventoryPage:
       allOf:
         - $ref: '#/components/schemas/PageBase'

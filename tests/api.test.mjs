@@ -20,9 +20,6 @@ async function service(overrides = {}) {
 async function customer(businessLineId, overrides = {}, token = actors.owner.token) {
   return (await request(line('/customers', businessLineId), { method: 'POST', token, body: { name: `QA customer ${uuid()}`, ...overrides }, expected: 201 })).data;
 }
-async function staff(overrides = {}) {
-  return (await request(line('/staff', salon), { method: 'POST', token: actors.owner.token, body: { name: `QA stylist ${uuid()}`, ...overrides }, expected: 201 })).data;
-}
 async function receive(item, quantity = 1) {
   return (await request(line('/inventory/movements', kedai), { method: 'POST', token: actors.owner.token, body: { productId: item.id, type: 'receive', quantityDelta: quantity, reason: 'QA receiving stock' }, expected: 201 })).data;
 }
@@ -48,12 +45,13 @@ async function checkout(item, options = {}) {
   assert.equal(sale.payment.status, body.paymentMethod === 'cash' ? 'confirmed' : 'pending');
   const expectedItems = options.expectedItems || body.items.map(input => {
     assert.equal(input.itemId, item.id, 'Multi-item checkout fixtures must supply independent expectedItems');
-    return { itemId: item.id, staffId: input.staffId || null, displayName: item.name, quantity: input.quantity, unitPrice: item.price, lineTotal: item.price * input.quantity };
+    return { itemId: item.id, displayName: item.name, quantity: input.quantity, unitPrice: item.price, lineTotal: item.price * input.quantity };
   });
   assert.equal(expectedItems.reduce((sum, row) => sum + row.lineTotal, 0), total);
   for (const expected of expectedItems) {
-    const actual = sale.items.find(row => row.itemId === expected.itemId && (row.staffId || null) === expected.staffId);
-    assert.ok(actual, 'Expected item/staff snapshot not found');
+    const actual = sale.items.find(row => row.itemId === expected.itemId);
+    assert.ok(actual, 'Expected item snapshot not found');
+    assert.equal(actual.staffId, null, 'New sales must not attribute staff');
     for (const field of ['unitPrice', 'quantity', 'lineTotal', 'displayName']) assert.equal(actual[field], expected[field], `Snapshot ${field}`);
   }
   expectedSales.set(sale.id, { sale, total, items: expectedItems, status: sale.payment.status });
@@ -113,7 +111,6 @@ test('F01: real API health, authentication, scoped line discovery and revoked se
 
 test('F01/F04: roles and line isolation are enforced by API, including record references', async t => {
   const hair = await service();
-  const stylist = await staff();
   const salonCustomer = await customer(salon);
   const drink = await product();
   const { sale: salonSale } = await checkout(hair);
@@ -124,7 +121,6 @@ test('F01/F04: roles and line isolation are enforced by API, including record re
       ['PATCH', `/products/${drink.id}`, { price: 1 }],
       ['DELETE', `/products/${drink.id}`],
       ['POST', line('/inventory/movements', kedai), { productId: drink.id, type: 'adjustment', quantityDelta: 1, reason: 'forbidden' }],
-      ['POST', line('/staff', kedai), { name: 'Forbidden' }],
       ['GET', '/users'],
       ['GET', '/integrations'],
       ['GET', line('/notifications', kedai)],
@@ -136,20 +132,19 @@ test('F01/F04: roles and line isolation are enforced by API, including record re
     await request('/integrations', { token: actors.admin.token, expected: 403 });
   });
   await t.test('unassigned line is forbidden on list/read/update/payment/queue routes', async () => {
-    for (const path of [line('/services', salon), line('/customers', salon), line('/staff', salon), line('/sales', salon), line('/salon/queue', salon)]) {
+    for (const path of [line('/services', salon), line('/customers', salon), line('/sales', salon), line('/salon/queue', salon)]) {
       await request(path, { token: actors.cashier.token, expected: 403 });
     }
-    for (const path of [`/services/${hair.id}`, `/customers/${salonCustomer.id}`, `/staff/${stylist.id}`, `/sales/${salonSale.id}`, `/payments/${salonSale.payment.id}`]) {
+    for (const path of [`/services/${hair.id}`, `/customers/${salonCustomer.id}`, `/sales/${salonSale.id}`, `/payments/${salonSale.payment.id}`]) {
       await request(path, { token: actors.cashier.token, expected: [403, 404] });
     }
     await request(`/salon/queue/${queued.id}`, { method: 'PATCH', token: actors.cashier.token, body: { status: 'in_service' }, expected: 403 });
     await request(line('/customers', salon), { method: 'POST', token: actors.cashier.token, body: { name: 'Leak attempt' }, expected: 403 });
   });
-  await t.test('foreign customer/service/staff IDs cannot be smuggled into authorized-line writes', async () => {
+  await t.test('foreign customer/service IDs cannot be smuggled into authorized-line writes', async () => {
     for (const body of [
       saleBody(drink, { customerId: salonCustomer.id }),
       { items: [{ itemType: 'product', itemId: hair.id, quantity: 1 }], paymentMethod: 'cash', cashReceived: 100000 },
-      { items: [{ itemType: 'product', itemId: drink.id, staffId: stylist.id, quantity: 1 }], paymentMethod: 'cash', cashReceived: 100000 },
     ]) await request(line('/sales', kedai), { method: 'POST', token: actors.cashier.token, body, headers: { 'X-Idempotency-Key': key() }, expected: [400, 403, 404] });
     const kedaiCustomer = await customer(kedai);
     await request(line('/salon/queue', salon), { method: 'POST', token: actors.salonCashier.token, body: { serviceIds: [hair.id], customerId: kedaiCustomer.id }, headers: { 'X-Idempotency-Key': key() }, expected: [400, 403, 404] });
@@ -163,7 +158,7 @@ test('F01/F04: roles and line isolation are enforced by API, including record re
 
 test('F01/F02/F05: malformed identifiers, bounded pagination, strict JSON and integer validation', async t => {
   await t.test('bad UUIDs are validation failures, absent valid UUIDs are not found', async () => {
-    for (const path of ['/products/not-a-uuid', '/services/not-a-uuid', '/customers/not-a-uuid', '/staff/not-a-uuid', '/sales/not-a-uuid', '/payments/not-a-uuid']) {
+    for (const path of ['/products/not-a-uuid', '/services/not-a-uuid', '/customers/not-a-uuid', '/sales/not-a-uuid', '/payments/not-a-uuid']) {
       await request(path, { token: actors.owner.token, expected: 400 });
     }
     await request(`/products/${uuid()}`, { token: actors.owner.token, expected: 404 });
@@ -221,14 +216,13 @@ test('F02: product create/read/search/update/archive, unique SKU and receipt sna
   await request(line('/sales', kedai), { method: 'POST', token: actors.owner.token, body: saleBody(original), headers: { 'X-Idempotency-Key': key() }, expected: [400, 409] });
 });
 
-test('F02/F04: service, customer and staff CRUD retain historical references', async t => {
+test('F02/F04: service and customer CRUD retain historical references', async t => {
   const hair = await service();
   const guest = await customer(salon, { phone: '+6281234567890' }, actors.salonCashier.token);
-  const stylist = await staff();
-  const body = saleBody(hair, { customerId: guest.id, items: [{ itemType: 'service', itemId: hair.id, quantity: 1, staffId: stylist.id }] });
+  const body = saleBody(hair, { customerId: guest.id });
   const { sale } = await checkout(hair, { body, token: actors.salonCashier.token });
   await t.test('directory detail/search/update works for allowed roles', async () => {
-    for (const [resource, record] of [['services', hair], ['customers', guest], ['staff', stylist]]) {
+    for (const [resource, record] of [['services', hair], ['customers', guest]]) {
       const { data } = await request(`/${resource}/${record.id}`, { token: actors.owner.token, expected: 200 });
       assert.equal(data.id, record.id);
       assert.equal(data.businessLineId, salon);
@@ -238,20 +232,41 @@ test('F02/F04: service, customer and staff CRUD retain historical references', a
       assert.equal(updated.name, `Updated ${record.name}`);
     }
   });
-  await t.test('invalid phone, duration and blank staff name are rejected', async () => {
+
+  test('staff management and attribution are no longer accepted', async () => {
+    for (const [method, path] of [
+      ['GET', line('/staff', salon)],
+      ['POST', line('/staff', salon)],
+      ['GET', `/staff/${uuid()}`],
+      ['PATCH', `/staff/${uuid()}`],
+      ['DELETE', `/staff/${uuid()}`],
+    ]) {
+      await request(path, { method, token: actors.owner.token, expected: 404 });
+    }
+    const hair = await service();
+    for (const staffId of [uuid(), null]) {
+      const body = saleBody(hair);
+      body.items[0].staffId = staffId;
+      await request(line('/sales', salon), { method: 'POST', token: actors.owner.token, body, headers: { 'X-Idempotency-Key': key() }, expected: 400 });
+      await request(line('/salon/queue', salon), { method: 'POST', token: actors.owner.token, body: { serviceIds: [hair.id], staffId }, headers: { 'X-Idempotency-Key': key() }, expected: 400 });
+    }
+    const entry = await queue({ serviceIds: [hair.id] });
+    assert.equal(entry.staffId, null);
+    await patchQueue(entry.id, { staffId: null }, 400);
+  });
+  await t.test('invalid phone and duration are rejected', async () => {
     await request(line('/customers', salon), { method: 'POST', token: actors.owner.token, body: { name: 'Invalid phone', phone: 'not a phone' }, expected: 400 });
     await request(line('/services', salon), { method: 'POST', token: actors.owner.token, body: { name: 'Invalid duration', price: 1000, durationMinutes: 0 }, expected: 400 });
-    await request(line('/staff', salon), { method: 'POST', token: actors.owner.token, body: { name: '' }, expected: 400 });
   });
-  await t.test('archiving all three leaves receipt intact and rejects future sales', async () => {
-    for (const [resource, record] of [['services', hair], ['customers', guest], ['staff', stylist]]) {
+  await t.test('archiving both leaves receipt intact and rejects future sales', async () => {
+    for (const [resource, record] of [['services', hair], ['customers', guest]]) {
       await request(`/${resource}/${record.id}`, { method: 'DELETE', token: actors.admin.token, expected: 204 });
       const { data } = await request(`/${resource}/${record.id}`, { token: actors.owner.token, expected: 200 });
       assert.equal(data.active, false);
     }
     const receipt = await saleDetail(sale.id);
     assert.equal(receipt.customerId, guest.id);
-    assert.equal(receipt.items[0].staffId, stylist.id);
+    assert.equal(receipt.items[0].staffId, null);
     assert.equal(receipt.items[0].displayName, hair.name);
     assert.equal(receipt.total, hair.price);
     await request(line('/sales', salon), { method: 'POST', token: actors.owner.token, body, headers: { 'X-Idempotency-Key': key() }, expected: [400, 409] });
@@ -596,9 +611,8 @@ test('F09: queue idempotency and concurrent daily number allocation', async t =>
 
 test('F09: queue lifecycle, sale association and terminal-state protection', async t => {
   const hair = await service();
-  const stylist = await staff();
   const guest = await customer(salon);
-  const entry = await queue({ serviceIds: [hair.id], staffId: stylist.id, customerId: guest.id });
+  const entry = await queue({ serviceIds: [hair.id], customerId: guest.id });
   assert.equal(entry.status, 'waiting');
   await t.test('cannot jump waiting to completed or reverse in-service', async () => {
     await patchQueue(entry.id, { status: 'completed' }, 409);
@@ -613,7 +627,7 @@ test('F09: queue lifecycle, sale association and terminal-state protection', asy
     await patchQueue(entry.id, { status: 'completed', saleId: sale.id }, [400, 403, 409]);
   });
   await t.test('completed entry links paid salon sale and cannot be cancelled', async () => {
-    const { sale } = await checkout(hair, { body: saleBody(hair, { customerId: guest.id, items: [{ itemType: 'service', itemId: hair.id, quantity: 1, staffId: stylist.id }] }) });
+    const { sale } = await checkout(hair, { body: saleBody(hair, { customerId: guest.id }) });
     const done = await patchQueue(entry.id, { status: 'completed', saleId: sale.id });
     assert.equal(done.status, 'completed');
     assert.equal(done.saleId, sale.id);
@@ -666,6 +680,7 @@ test('F08: report date/group inputs and line membership are bounded', async () =
     { from: '2025-01-01', to: '2026-01-02' },
     { from: startedDate },
     { from: startedDate, to: startedDate, groupBy: 'profit' },
+    { from: startedDate, to: startedDate, groupBy: 'staff' },
   ]) {
     await request(line('/reports/sales', kedai, query), { token: actors.owner.token, expected: 400 });
   }
@@ -691,7 +706,7 @@ function reportExpectation(businessLineId, groupBy) {
   for (const expected of sales) {
     if (groupBy === 'day') add(startedDate, expected.total, expected.sale.id);
     else if (groupBy === 'paymentMethod') add(expected.sale.payment.method, expected.total, expected.sale.id);
-    else for (const item of expected.items) add(groupBy === 'item' ? item.itemId : item.staffId || 'unassigned', item.lineTotal, expected.sale.id);
+    else for (const item of expected.items) add(item.itemId, item.lineTotal, expected.sale.id);
   }
   return {
     totalSales: sales.reduce((sum, expected) => sum + expected.total, 0),
@@ -703,7 +718,7 @@ function reportExpectation(businessLineId, groupBy) {
 
 test('F08: confirmed-only reports reconcile independently across all grouping dimensions and CSV', async t => {
   assert.equal(businessDate(), startedDate, 'Suite crossed Jakarta midnight; rerun so same-day fixture assertions are meaningful');
-  // Two items in one transaction and two services assigned to one stylist distinguish
+  // Two items in one transaction and multiple salon services distinguish
   // item quantity / joined row count from the required DISTINCT sale count.
   const first = await product({ price: 714 });
   const second = await product({ price: 1337 });
@@ -714,14 +729,13 @@ test('F08: confirmed-only reports reconcile independently across all grouping di
   });
   const cut = await service({ price: 17777 });
   const wash = await service({ price: 8881 });
-  const stylist = await staff();
   await checkout(cut, {
     total: 44435,
-    body: { items: [{ itemType: 'service', itemId: cut.id, quantity: 2, staffId: stylist.id }, { itemType: 'service', itemId: wash.id, quantity: 1, staffId: stylist.id }], paymentMethod: 'cash', cashReceived: 50000 },
-    expectedItems: [{ itemId: cut.id, staffId: stylist.id, quantity: 2, unitPrice: 17777, displayName: cut.name, lineTotal: 35554 }, { itemId: wash.id, staffId: stylist.id, quantity: 1, unitPrice: 8881, displayName: wash.name, lineTotal: 8881 }],
+    body: { items: [{ itemType: 'service', itemId: cut.id, quantity: 2 }, { itemType: 'service', itemId: wash.id, quantity: 1 }], paymentMethod: 'cash', cashReceived: 50000 },
+    expectedItems: [{ itemId: cut.id, quantity: 2, unitPrice: 17777, displayName: cut.name, lineTotal: 35554 }, { itemId: wash.id, quantity: 1, unitPrice: 8881, displayName: wash.name, lineTotal: 8881 }],
   });
   for (const businessLineId of [kedai, salon]) {
-    for (const groupBy of ['day', 'paymentMethod', 'item', 'staff']) {
+    for (const groupBy of ['day', 'paymentMethod', 'item']) {
       await t.test(`${businessLineId === kedai ? 'kedai' : 'salon'} grouped by ${groupBy}`, async () => {
         const expected = reportExpectation(businessLineId, groupBy);
         const { data } = await request(line('/reports/sales', businessLineId, { from: startedDate, to: startedDate, groupBy }), { token: actors.admin.token, expected: 200 });

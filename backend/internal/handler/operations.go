@@ -142,7 +142,7 @@ func (a *API) filter(c *gin.Context, kind string) (dto.Filter, error) {
 	if e != nil {
 		return dto.Filter{}, e
 	}
-	if active != nil && !oneOf(kind, "products", "services", "customers", "staff", "categories") {
+	if active != nil && !oneOf(kind, "products", "services", "customers", "categories") {
 		return dto.Filter{}, lib.Invalid("active is not a supported filter for this resource")
 	}
 	f := dto.Filter{Kind: kind, LineID: line, Page: page, Limit: limit, Search: c.Query("search"), Active: active, Status: c.Query("status")}

@@ -204,24 +204,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/staff": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List staff for a business line */
-        get: operations["listStaff"];
-        put?: never;
-        /** Create a staff member */
-        post: operations["createStaff"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/inventory": {
         parameters: {
             query?: never;
@@ -421,7 +403,7 @@ export interface paths {
         };
         /**
          * Aggregate confirmed sales for a date range
-         * @description Inclusive business-timezone date range of 1 to 366 days. Cashiers may only use groupBy `day` or `paymentMethod`; `item` and `staff` require owner or admin.
+         * @description Inclusive business-timezone date range of 1 to 366 days. Cashiers may only use groupBy `day` or `paymentMethod`; `item` requires owner or admin.
          */
         get: operations["getSalesReport"];
         put?: never;
@@ -550,27 +532,6 @@ export interface paths {
         head?: never;
         /** Update customer */
         patch: operations["updateCustomer"];
-        trace?: never;
-    };
-    "/staff/{staffId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                staffId: string;
-            };
-            cookie?: never;
-        };
-        /** Get staff details */
-        get: operations["getStaff"];
-        put?: never;
-        post?: never;
-        /** Archive staff; historical sale snapshots remain */
-        delete: operations["archiveStaff"];
-        options?: never;
-        head?: never;
-        /** Update staff */
-        patch: operations["updateStaff"];
         trace?: never;
     };
     "/users": {
@@ -734,15 +695,6 @@ export interface components {
         CustomerPatch: {
             name?: string;
             phone?: string | null;
-            active?: boolean;
-        };
-        StaffInput: {
-            name: string;
-            /** @default true */
-            active: boolean;
-        };
-        StaffPatch: {
-            name?: string;
             active?: boolean;
         };
         /**
@@ -930,18 +882,6 @@ export interface components {
             /** @default true */
             active: boolean;
         };
-        Staff: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            businessLineId: string;
-            name: string;
-            active: boolean;
-            /** Format: date-time */
-            createdAt: string;
-            /** Format: date-time */
-            updatedAt: string;
-        };
         InventoryItem: {
             /** Format: uuid */
             productId: string;
@@ -1003,11 +943,6 @@ export interface components {
             /** Format: uuid */
             itemId: string;
             quantity: number;
-            /**
-             * Format: uuid
-             * @description Only salon services may carry a staff attribution.
-             */
-            staffId?: string;
         };
         SaleItem: {
             /** Format: uuid */
@@ -1021,8 +956,12 @@ export interface components {
             unitPrice: number;
             quantity: number;
             lineTotal: number;
-            /** Format: uuid */
-            staffId?: string | null;
+            /**
+             * Format: uuid
+             * @deprecated
+             * @description Legacy attribution retained for historical snapshots. Null on new sales.
+             */
+            readonly staffId?: string | null;
             /** @description Stock-tracking snapshot used to settle reservations. */
             stockTracked: boolean;
         };
@@ -1151,17 +1090,10 @@ export interface components {
             /** Format: uuid */
             customerId?: string | null;
             serviceIds: string[];
-            /** Format: uuid */
-            staffId?: string | null;
             note?: string | null;
         };
         QueueEntryPatch: {
             status?: components["schemas"]["QueueStatus"];
-            /**
-             * Format: uuid
-             * @description Immutable once the entry is completed.
-             */
-            staffId?: string | null;
             /**
              * Format: uuid
              * @description Only settable on a completed entry, must reference a paid sale in the same line covering every requested service, and is immutable once set.
@@ -1183,8 +1115,12 @@ export interface components {
             /** Format: uuid */
             customerId?: string | null;
             serviceIds: string[];
-            /** Format: uuid */
-            staffId?: string | null;
+            /**
+             * Format: uuid
+             * @deprecated
+             * @description Legacy attribution retained for historical entries. Null on new entries.
+             */
+            readonly staffId?: string | null;
             /** Format: uuid */
             saleId?: string | null;
             note?: string | null;
@@ -1207,9 +1143,6 @@ export interface components {
         };
         CustomerPage: components["schemas"]["PageBase"] & {
             data?: components["schemas"]["Customer"][];
-        };
-        StaffPage: components["schemas"]["PageBase"] & {
-            data?: components["schemas"]["Staff"][];
         };
         InventoryPage: components["schemas"]["PageBase"] & {
             data?: components["schemas"]["InventoryItem"][];
@@ -1841,68 +1774,6 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
-    listStaff: {
-        parameters: {
-            query: {
-                /** @description Must identify a line accessible to the authenticated user. */
-                businessLineId: components["parameters"]["BusinessLineId"];
-                page?: components["parameters"]["Page"];
-                limit?: components["parameters"]["Limit"];
-                /** @description Case-insensitive substring match on name, and on SKU for products. */
-                search?: components["parameters"]["Search"];
-                /** @description Filter by archived state; omit to return both active and archived records. */
-                active?: components["parameters"]["Active"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Staff page */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StaffPage"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-        };
-    };
-    createStaff: {
-        parameters: {
-            query: {
-                /** @description Must identify a line accessible to the authenticated user. */
-                businessLineId: components["parameters"]["BusinessLineId"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StaffInput"];
-            };
-        };
-        responses: {
-            /** @description Staff created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Staff"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-        };
-    };
     listInventory: {
         parameters: {
             query: {
@@ -2292,7 +2163,7 @@ export interface operations {
                 businessLineId: components["parameters"]["BusinessLineId"];
                 from: string;
                 to: string;
-                groupBy?: "day" | "paymentMethod" | "item" | "staff";
+                groupBy?: "day" | "paymentMethod" | "item";
             };
             header?: never;
             path?: never;
@@ -2636,86 +2507,6 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
-        };
-    };
-    getStaff: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                staffId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Staff */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Staff"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
-    archiveStaff: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                staffId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Archived */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
-    updateStaff: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                staffId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StaffPatch"];
-            };
-        };
-        responses: {
-            /** @description Updated */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Staff"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
         };
     };
     listUsers: {

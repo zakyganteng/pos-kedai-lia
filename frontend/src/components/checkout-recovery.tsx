@@ -39,15 +39,18 @@ export function CheckoutRecovery({
   if (phase.name !== 'unresolved' && phase.name !== 'conflict') return null;
 
   const conflict = phase.name === 'conflict';
+  const manualReview = phase.failure.code === 'CHECKOUT_FORMAT_CHANGED';
 
   return (
     <div className="stack">
       <Notice
         tone="error"
         title={
-          conflict
-            ? 'Server menolak permintaan ini karena bentrok keadaan'
-            : 'Hasil permintaan pembayaran belum diketahui'
+          manualReview
+            ? 'Permintaan lama perlu diperiksa'
+            : conflict
+              ? 'Server menolak permintaan ini karena bentrok keadaan'
+              : 'Hasil permintaan pembayaran belum diketahui'
         }
         live="assertive"
       >
@@ -56,17 +59,21 @@ export function CheckoutRecovery({
           Transaksi senilai {rupiah(phase.attempt.snapshot.total)} mungkin sudah tercatat di server,
           mungkin juga belum. Jangan membuat pesanan baru sebelum hal ini jelas.
         </p>
-        <p className="meta">
-          Tombol kirim ulang memakai kunci permintaan yang sama, sehingga server mengulang hasil
-          aslinya dan tidak membuat transaksi kedua.
-        </p>
+        {manualReview ? null : (
+          <p className="meta">
+            Tombol kirim ulang memakai kunci permintaan yang sama, sehingga server mengulang hasil
+            aslinya dan tidak membuat transaksi kedua.
+          </p>
+        )}
         {phase.failure.requestId === undefined ? null : (
           <p className="meta">Kode permintaan: {phase.failure.requestId}</p>
         )}
         <div className="btn-row">
-          <button type="button" className="btn btn-primary" onClick={onRetrySame}>
-            Kirim ulang permintaan yang sama
-          </button>
+          {manualReview ? null : (
+            <button type="button" className="btn btn-primary" onClick={onRetrySame}>
+              Kirim ulang permintaan yang sama
+            </button>
+          )}
           <Link className="btn btn-secondary" href="/struk">
             Periksa daftar struk
           </Link>

@@ -58,7 +58,7 @@ func TestCategoryFiltersAreProductOnly(t *testing.T) {
 		}
 	}
 
-	for _, kind := range []string{"services", "customers", "staff", "sales", "queue", "movements", "notifications", "categories"} {
+	for _, kind := range []string{"services", "customers", "sales", "queue", "movements", "notifications", "categories"} {
 		for _, q := range []string{"categoryId=" + testCategory, "categoryId=", "uncategorized=true", "uncategorized="} {
 			r = httptest.NewRequest("GET", "/?businessLineId="+testLine+"&"+q, nil)
 			c, _ = newTestContext(r)

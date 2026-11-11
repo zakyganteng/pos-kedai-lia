@@ -2,7 +2,7 @@
 
 ## Scope and evidence policy
 
-The independent API suite is in `project/tests/`. It builds and starts the **actual Go API**, migrates a **new PostgreSQL database** (the migration creates the default owner), and exercises only public HTTP routes. It never imports application services/repositories, edits migrations, inserts fixture sales with SQL, or substitutes in-memory persistence. Role fixtures, catalog, stock, customers, staff, sales, and queues are created through the API.
+The independent API suite is in `project/tests/`. It builds and starts the **actual Go API**, migrates a **new PostgreSQL database** (the migration creates the default owner), and exercises only public HTTP routes. It never imports application services/repositories, edits migrations, inserts fixture sales with SQL, or substitutes in-memory persistence. Role fixtures, catalog, stock, customers, sales, and queues are created through the API.
 
 The suite runs in **two phases against two separate disposable databases and two separate API processes**, because notification provider configuration is process-wide and a second outbox worker on a shared database would claim the other phase's jobs:
 
@@ -77,10 +77,10 @@ Use a dedicated test cluster because the admin connection has database-creation 
 |---|---|---|
 | API-01 F01 | Unauthenticated browser, forged bearer, one bad password, logout followed by token reuse | 401; no protected data; revoked token rejected |
 | API-02 F01 | Kedai-only cashier opens salon list/detail/payment/queue or submits salon references in kedai sale | 403 / concealed detail 404; no cross-line data or mutation |
-| API-03 F01/F04 | Cashier attempts catalog/inventory/staff mutation, user administration, detailed report/export, notifications/reconciliation; admin attempts owner settings | 403 at API, not only hidden UI |
+| API-03 F01/F04 | Cashier attempts catalog/inventory mutation, user administration, detailed report/export, notifications/reconciliation; admin attempts owner settings | 403 at API, not only hidden UI |
 | API-04 F01/F02/F05 | Malformed/absent UUIDs; pages 0/-1; limits 0/101/non-integer; broken/trailing JSON; null; unknown fields | Structured 400/404; no panic/database detail leakage |
 | API-05 F02 | Create/search/update/archive product; duplicate SKU; change price/name after paid checkout | Unique SKU conflict; historical receipt unchanged; archived item cannot be sold |
-| API-06 F02/F04 | Service/customer/staff CRUD and archive after attributed salon sale | Updated directory records; historical customer/staff references and service snapshot survive |
+| API-06 F02/F04 | Service/customer CRUD and archive after salon sale; removed staff routes and assignment fields | Customer references and service snapshots survive; staff routes return 404, attribution inputs return 400 |
 | API-07 F02/F05 | Negative/fractional/excessive price, invalid phone/duration/name, zero/negative/fractional/>1000 quantity, empty cart, underpaid cash, client totals | Validation rejects; no incorrect sale or integer rounding |
 | API-08 F05 | Repeat the same cash checkout three times, then change quantity under the same key; reuse key for another user/line/queue operation | Same original sale response; changed fingerprint 409; unrelated scopes remain independent |
 | API-09 F03/F05 | 8 simultaneous same-key cash submissions, quantity 2, stock 8 | One sale, one stock debit, final stock 6 |
@@ -95,7 +95,7 @@ Use a dedicated test cluster because the admin connection has database-creation 
 | API-18 F09 | Six same-key queue submissions, changed note replay, 12 distinct simultaneous walk-ins | One replayed entry, changed payload 409; 12 unique contiguous daily numbers |
 | API-19 F09 | Waiting→completed, reverse in-service, valid completion with salon sale, wrong-line sale link, terminal cancellation | Invalid transitions rejected; valid timestamps/sale association; terminal states protected |
 | API-20 F08 | Invalid/impossible/reversed dates; 367 inclusive days; 366-day boundary; empty historic date; invalid grouping | 400 for invalid/excessive; allowed boundary; empty report is zero |
-| API-21 F08 | Both lines, mixed cash/QR/pending/failed/expired, archived snapshots; day/method/item/staff grouping | Confirmed-only independent totals; distinct transaction counts; stable ID group keys; no cross-line mixing |
+| API-21 F08 | Both lines, mixed cash/QR/pending/failed/expired, archived snapshots; day/method/item grouping | Confirmed-only independent totals; distinct transaction counts; stable ID group keys; no cross-line mixing; staff grouping rejected |
 | API-22 F08 | CSV for each line and today's Jakarta business date | Exact columns `saleId,businessLineId,createdAt,paymentMethod,total`; exactly confirmed sale IDs; integer per-sale amounts and aggregate equal expected report |
 | API-23 F05/F06 | External provider persists intent but withholds response; valid callback arrives before response/attachment, followed by retry | Bounded timeout; early event retained/recoverable; same sale/reference/key reused; one stock debit; same signed event can confirm after recovery |
 | API-24 F06 | Authenticated terminal event occurred 30 days ago and arrives after confirmation | Retained timestamp and approved `stale` outcome for reconciliation; no payment regression or invisible loss |
@@ -124,10 +124,10 @@ Use anonymized sandbox fixtures. Record date, build SHA/version, device/browser,
 | UAT-03 (mobile) | Cashier initiates one QR sale; observe pending, then valid sandbox confirmation; repeat with invalid/mismatched callback | QR stays pending until trusted event; no browser self-confirm; failed/expired receipt not shown as paid |
 | UAT-04 | Admin changes price and archives previously sold item; cashier views old receipt and starts new cart | Historical name/price remain; archived item not selectable/sellable; validation errors understandable |
 | UAT-05 | Two cashiers simultaneously buy the last item | One succeeds; loser sees useful stock conflict; refresh shows zero; ledger attributable |
-| UAT-06 (mobile) | Salon operator creates 3 walk-ins, assigns staff/customer, calls and completes one, cancels one | Queue sorted/numbered; valid actions/timestamps; no invalid backward transition; sale link available |
-| UAT-07 | Admin edits customer/staff, archives referenced person; cashier performs permitted customer lookup/create | Correct role boundaries and retained historical references; no secret exposure |
+| UAT-06 (mobile) | Salon operator creates 3 walk-ins, optionally assigns customer, calls and completes one, cancels one | Queue sorted/numbered without staff controls; valid actions/timestamps; no invalid backward transition; sale link available |
+| UAT-07 | Admin edits customer, archives referenced person; cashier performs permitted customer lookup/create | Correct role boundaries and retained historical references; no secret exposure |
 | UAT-08 | Admin opens failed WhatsApp history after confirmed payment, retries; cashier attempts same URL | Failure visible without misleading sent label; payment remains confirmed; unauthorized retry denied |
-| UAT-09 | Owner reconciles a prepared day (≤30 sales across both lines) using day/method/item/staff report and CSV | Values match receipts; pending/failed excluded; clear sales/revenue wording, **not profit**; end-of-day workflow <10 minutes |
+| UAT-09 | Owner reconciles a prepared day (≤30 sales across both lines) using day/method/item report and CSV | Values match receipts; pending/failed excluded; clear sales/revenue wording, **not profit**; end-of-day workflow <10 minutes |
 | UAT-10 | Tablet/mobile with delayed network, empty search, one server error; keyboard through core forms | No clipped controls at 360px, clear labels/focus/error recovery, duplicate actions controlled, no lost cart silently |
 
 Stop UAT on false payment confirmation, data leakage, duplicate charge/order, overselling, or report discrepancy. Record reproducible steps; retest the failed scenario plus its affected automated group before signoff.

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { rupiah } from '@/lib/format';
-import type { BusinessLine, QueueEntry, SalonService, Staff } from '@/lib/types';
+import type { BusinessLine, QueueEntry, SalonService } from '@/lib/types';
 import type { MutationResult } from '@/hooks/use-mutation';
 import { buildQuery } from '@/hooks/use-paged';
 import { CustomerPicker } from './customer-picker';
@@ -18,13 +18,12 @@ type Draft = {
   /** The submission this draft belongs to. */
   key: string;
   serviceIds: string[];
-  staffId: string;
   customer: { id: string; name: string } | null;
   note: string;
 };
 
 function emptyDraft(key: string): Draft {
-  return { key, serviceIds: [], staffId: '', customer: null, note: '' };
+  return { key, serviceIds: [], customer: null, note: '' };
 }
 
 export type QueueAddDialogProps = {
@@ -39,7 +38,6 @@ export type QueueAddDialogProps = {
   /** Every service of the line; archived ones are filtered out here. */
   services: SalonService[];
   servicesLoading: boolean;
-  staff: Staff[];
   /** Business date currently shown; a new entry always lands on today. */
   viewingDate: string;
   todayDate: string;
@@ -50,8 +48,8 @@ export type QueueAddDialogProps = {
 };
 
 /**
- * Add a walk-in to the queue: which services, optionally who serves and who
- * is served, plus a note. The queue number itself is allocated by the backend
+ * Add a walk-in to the queue: services, an optional customer and a note.
+ * The queue number itself is allocated by the backend
  * for the current business date.
  */
 export function QueueAddDialog({
@@ -60,7 +58,6 @@ export function QueueAddDialog({
   idempotencyKey,
   services,
   servicesLoading,
-  staff,
   viewingDate,
   todayDate,
   mutate,
@@ -74,13 +71,12 @@ export function QueueAddDialog({
   // The idempotency key identifies one submission, so a new key *is* a new
   // form. Deriving that here rather than resetting in an effect keeps the
   // fresh fields and the fresh key in the same render.
-  const { serviceIds, staffId, customer, note } =
+  const { serviceIds, customer, note } =
     draft.key === idempotencyKey ? draft : emptyDraft(idempotencyKey);
   const update = (patch: Partial<Omit<Draft, 'key'>>) =>
-    setDraft({ key: idempotencyKey, serviceIds, staffId, customer, note, ...patch });
+    setDraft({ key: idempotencyKey, serviceIds, customer, note, ...patch });
 
   const activeServices = services.filter((service) => service.active);
-  const activeStaff = staff.filter((member) => member.active);
   const failure = mutate.failureOf('create');
   const busy = mutate.isPending('create');
 
@@ -100,7 +96,6 @@ export function QueueAddDialog({
     if (serviceIds.length === 0 || tooMany) return;
     const body: Record<string, unknown> = { serviceIds };
     if (customer !== null) body.customerId = customer.id;
-    if (staffId !== '') body.staffId = staffId;
     const trimmedNote = note.trim();
     if (trimmedNote !== '') body.note = trimmedNote;
 
@@ -193,26 +188,6 @@ export function QueueAddDialog({
               <p className="field-error">Maksimal {SERVICES_MAX} layanan untuk satu antrean.</p>
             ) : null}
           </fieldset>
-
-          <div className="field">
-            <label className="field-label" htmlFor="antrean-tambah-staf">
-              Staf (opsional)
-            </label>
-            <select
-              id="antrean-tambah-staf"
-              className="select"
-              value={staffId}
-              onChange={(event) => update({ staffId: event.target.value })}
-            >
-              <option value="">Belum ditentukan</option>
-              {activeStaff.map((member) => (
-                <option key={member.id} value={member.id}>
-                  {member.name}
-                </option>
-              ))}
-            </select>
-            <p className="field-hint">Staf masih dapat diubah selama antrean belum selesai.</p>
-          </div>
 
           <div className="field">
             <span className="field-label" id="antrean-tambah-pelanggan-label">

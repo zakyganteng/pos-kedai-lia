@@ -71,12 +71,6 @@ func (s *Service) CreateSale(ctx context.Context, u model.User, line, key string
 			if err = Authorize(u, line, expected(kind)); err != nil {
 				return err
 			}
-			if v.ItemType == "product" && v.StaffID != nil {
-				return lib.Invalid("Only salon services can have staff")
-			}
-			if err = optionalReference(ctx, r, "staff", v.StaffID, line); err != nil {
-				return err
-			}
 			b, itemLine, e := r.Get(ctx, kind, v.ItemID, true)
 			if e != nil {
 				return e
@@ -104,7 +98,7 @@ func (s *Service) CreateSale(ctx context.Context, u model.User, line, key string
 				return lib.Invalid("Sale total exceeds allowed bounds")
 			}
 			sale.Total += amount
-			sale.Items = append(sale.Items, model.Item{ID: lib.ID(), ItemType: v.ItemType, ItemID: v.ItemID, DisplayName: p.Name, UnitPrice: p.Price, Quantity: v.Quantity, LineTotal: amount, StaffID: v.StaffID, StockTracked: p.StockTracked})
+			sale.Items = append(sale.Items, model.Item{ID: lib.ID(), ItemType: v.ItemType, ItemID: v.ItemID, DisplayName: p.Name, UnitPrice: p.Price, Quantity: v.Quantity, LineTotal: amount, StockTracked: p.StockTracked})
 			if p.StockTracked {
 				st, e := r.Stock(ctx, v.ItemID, true)
 				if e != nil {

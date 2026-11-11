@@ -24,8 +24,6 @@ test('allowlisted reads resolve to the matching backend path', () => {
     `/services/${UUID}`,
     '/customers',
     `/customers/${UUID}`,
-    '/staff',
-    `/staff/${UUID}`,
     '/inventory',
     '/inventory/movements',
     '/sales',
@@ -62,7 +60,6 @@ test('every documented write is reachable at its exact resource path', () => {
     ['POST', '/products?businessLineId=' + UUID],
     ['POST', '/services?businessLineId=' + UUID],
     ['POST', '/customers?businessLineId=' + UUID],
-    ['POST', '/staff?businessLineId=' + UUID],
     ['POST', '/inventory/movements?businessLineId=' + UUID],
     ['POST', '/salon/queue?businessLineId=' + UUID],
     ['POST', `/sales/${UUID}/void`],
@@ -71,14 +68,12 @@ test('every documented write is reachable at its exact resource path', () => {
     ['PATCH', `/products/${UUID}`],
     ['PATCH', `/services/${UUID}`],
     ['PATCH', `/customers/${UUID}`],
-    ['PATCH', `/staff/${UUID}`],
     ['PATCH', `/categories/${UUID}`],
     ['PATCH', `/salon/queue/${UUID}`],
     ['PATCH', `/users/${UUID}`],
     ['DELETE', `/products/${UUID}`],
     ['DELETE', `/services/${UUID}`],
     ['DELETE', `/customers/${UUID}`],
-    ['DELETE', `/staff/${UUID}`],
     ['DELETE', `/categories/${UUID}`],
     ['DELETE', `/users/${UUID}`],
   ];
@@ -96,6 +91,15 @@ test('only checkout and queue creation require an idempotency key', () => {
   assert.equal(sale.ok && sale.idempotent, true);
   assert.equal(queue.ok && queue.idempotent, true);
   assert.equal(product.ok && product.idempotent, false);
+});
+
+test('removed staff routes and report grouping are refused', () => {
+  for (const method of ['GET', 'POST', 'PATCH', 'DELETE']) {
+    for (const path of ['/staff', `/staff/${UUID}`]) {
+      assert.equal(decide(method, path).ok, false);
+    }
+  }
+  assert.equal(decide('GET', '/reports/sales?groupBy=staff').ok, false);
 });
 
 test('the sales export is the only CSV route', () => {

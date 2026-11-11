@@ -18,14 +18,6 @@ func (s *Service) SaveCustomer(ctx context.Context, u model.User, line, id strin
 	return s.savePerson(ctx, u, "customers", line, id, m, archive)
 }
 
-func (s *Service) GetStaff(ctx context.Context, u model.User, id string) (model.Person, error) {
-	return s.getPerson(ctx, u, "staff", id)
-}
-
-func (s *Service) SaveStaff(ctx context.Context, u model.User, line, id string, m map[string]json.RawMessage, archive bool) (model.Person, error) {
-	return s.savePerson(ctx, u, "staff", line, id, m, archive)
-}
-
 func (s *Service) getPerson(ctx context.Context, u model.User, kind, id string) (model.Person, error) {
 	b, line, err := s.Repo.Get(ctx, kind, id, false)
 	if err != nil {

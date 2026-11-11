@@ -14,7 +14,9 @@ Frontend: Next.js App Router + TypeScript in `frontend/`, rebuilt for core POS o
 Additive schema version 4 permits `categories` records and nullable product `categoryId` references. Categories are food/beverage-line scoped, names are unique per line after case/whitespace normalization, and all references are canonical UUIDs. Owners/admins manage categories and assignments; assigned cashiers can read/filter. Archive requires no assigned products, including inactive products, and shared/exclusive row locks plus database constraints prevent archive/assignment races. Existing imported MENU-F/MENU-D products gain Makanan/Minuman categories once; Snack starts empty. Replay never resets category edits or assignments. See [CATEGORY-VERIFICATION.md](CATEGORY-VERIFICATION.md).
 
 ## Safety decisions
-- Owner manages users/integration status; admin manages operational resources; cashier checks out, creates/looks up customers, operates queue and reads operational stock/sales. Cashier denied staff administration, inventory mutations, catalog mutations, notifications and reports beyond permitted operational totals.
+- Owner manages users/integration status; admin manages operational resources; cashier checks out, creates/looks up customers, operates queue and reads operational stock/sales. Cashier denied inventory mutations, catalog mutations, notifications and reports beyond permitted operational totals.
+
+- Staff management and attribution are removed from both business lines. `/staff` endpoints and `groupBy=staff` reports are unavailable; checkout and queue writes reject `staffId`. Existing staff records, database references and read-only legacy response fields remain so historical immutable sales can still be read, reconciled and voided. No destructive data migration is needed.
 - Every line record reference is checked for caller membership and expected line type. Products only food_beverage; services/queue only salon.
 - No refund/void money movement endpoint until owner approves policy and real provider supports it. No dishonest stock reversal. Pending failed/expired QR payments cancel sale and release any stock reservation exactly once; confirmed sales cannot be cancelled via browser.
 - QR stock is reserved transactionally before provider call so pending concurrent intents cannot oversell; report on-hand and reservation semantics documented. Cash stock decremented and ledger recorded in same sale transaction.
@@ -53,5 +55,5 @@ The source brief in `prd-task/` is retained; `project/openapi.yaml` is the maint
 - Backend gofmt, go vet ./..., go test -race ./..., PostgreSQL integration tests.
 - OpenAPI lint and dependency audit.
 - Docker compose config and actual build/start where possible; verify isolated persistent PostgreSQL and backup/restore.
-- Black-box API suite: login, line isolation, checkout/receipt, catalog, inventory, customer/staff, queue, reports/export and notification failure visibility; unauthorized and error responses.
+- Black-box API suite: login, line isolation, checkout/receipt, catalog, inventory, customers, queue, reports/export and notification failure visibility; unauthorized and error responses.
 - Record actual results and remaining release gates. Never equate build completion with real-provider approval or UAT.

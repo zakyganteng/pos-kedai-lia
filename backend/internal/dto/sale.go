@@ -7,10 +7,9 @@ type VoidSaleRequest struct {
 }
 
 type ItemInput struct {
-	ItemType string  `json:"itemType"`
-	ItemID   string  `json:"itemId"`
-	Quantity int     `json:"quantity"`
-	StaffID  *string `json:"staffId,omitempty"`
+	ItemType string `json:"itemType"`
+	ItemID   string `json:"itemId"`
+	Quantity int    `json:"quantity"`
 }
 
 type SaleInput struct {

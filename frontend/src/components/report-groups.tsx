@@ -20,7 +20,6 @@ const KEY_HEADER: Record<ReportGroupBy, string> = {
   day: 'Tanggal',
   paymentMethod: 'Metode pembayaran',
   item: 'Item',
-  staff: 'Staf',
 };
 
 function percentText(share: number): string {
@@ -30,7 +29,7 @@ function percentText(share: number): string {
 /**
  * The grouped rows of a sales report, each with its share of the total.
  *
- * Ids are resolved to names through the catalogue and staff lists, read
+ * Ids are resolved to names through the catalogue, read
  * without an `active` filter so an item sold before it was archived still
  * shows the name it was sold under rather than a bare id.
  */
@@ -47,9 +46,6 @@ export function ReportGroups({
   const items = useLookup<NamedRecord>(itemResource, { businessLineId: line.id }, {
     onUnauthorized: onSessionExpired,
   });
-  const staff = useLookup<NamedRecord>(groupBy === 'staff' ? '/staff' : null, {
-    businessLineId: line.id,
-  }, { onUnauthorized: onSessionExpired });
 
   const rows = useMemo(() => {
     const groups = report.groups.slice();
@@ -62,14 +58,11 @@ export function ReportGroups({
   const label = (key: string): string => {
     if (groupBy === 'day') return businessDate(key);
     if (groupBy === 'paymentMethod') return paymentMethodLabel(key);
-    if (groupBy === 'item') return items.byId.get(key)?.name ?? shortId(key);
-    if (key === 'unassigned') return 'Tanpa staf';
-    return staff.byId.get(key)?.name ?? shortId(key);
+    return items.byId.get(key)?.name ?? shortId(key);
   };
 
-  const lookupTruncated =
-    (groupBy === 'item' && items.truncated) || (groupBy === 'staff' && staff.truncated);
-  const lookupError = groupBy === 'item' ? items.error : groupBy === 'staff' ? staff.error : null;
+  const lookupTruncated = groupBy === 'item' && items.truncated;
+  const lookupError = groupBy === 'item' ? items.error : null;
 
   if (rows.length === 0) {
     return (
@@ -86,7 +79,7 @@ export function ReportGroups({
     <>
       {lookupError !== null ? (
         <p className="meta">
-          Nama {groupBy === 'item' ? 'item' : 'staf'} belum dapat dimuat ({lookupError}), sehingga
+          Nama item belum dapat dimuat ({lookupError}), sehingga
           sebagian baris ditampilkan sebagai kode.
         </p>
       ) : null}

@@ -23,8 +23,6 @@ export type DraftItem = {
   unitPrice: number;
   quantity: number;
   stockTracked: boolean;
-  staffId: string | null;
-  staffName: string | null;
 };
 
 export type Draft = {
@@ -59,8 +57,6 @@ export function parseDraft(value: unknown): Draft {
       unitPrice: item.unitPrice,
       quantity: clampQuantity(typeof item.quantity === 'number' ? item.quantity : MIN_QUANTITY),
       stockTracked: item.stockTracked === true,
-      staffId: typeof item.staffId === 'string' ? item.staffId : null,
-      staffName: typeof item.staffName === 'string' ? item.staffName : null,
     });
     if (items.length >= MAX_DISTINCT_ITEMS) break;
   }
@@ -82,10 +78,9 @@ export type DraftApi = {
   isEmpty: boolean;
   isFull: boolean;
   quantityOf: (itemId: string) => number;
-  addItem: (item: Omit<DraftItem, 'quantity' | 'staffId' | 'staffName'>, quantity?: number) => void;
+  addItem: (item: Omit<DraftItem, 'quantity'>, quantity?: number) => void;
   setQuantity: (itemId: string, quantity: number) => void;
   removeItem: (itemId: string) => void;
-  setStaff: (itemId: string, staffId: string | null, staffName: string | null) => void;
   setCustomer: (customerId: string | null, customerName: string | null) => void;
   clear: () => void;
 };
@@ -122,7 +117,7 @@ export function useDraft(workspace: Workspace): DraftApi {
             ...current,
             items: [
               ...current.items,
-              { ...item, quantity: clampQuantity(quantity), staffId: null, staffName: null },
+              { ...item, quantity: clampQuantity(quantity) },
             ],
           };
         }
@@ -152,18 +147,6 @@ export function useDraft(workspace: Workspace): DraftApi {
       update((current) => ({
         ...current,
         items: current.items.filter((line) => line.itemId !== itemId),
-      }));
-    },
-    [update],
-  );
-
-  const setStaff = useCallback<DraftApi['setStaff']>(
-    (itemId, staffId, staffName) => {
-      update((current) => ({
-        ...current,
-        items: current.items.map((line) =>
-          line.itemId === itemId ? { ...line, staffId, staffName } : line,
-        ),
       }));
     },
     [update],
@@ -201,7 +184,6 @@ export function useDraft(workspace: Workspace): DraftApi {
     addItem,
     setQuantity,
     removeItem,
-    setStaff,
     setCustomer,
     clear,
   };

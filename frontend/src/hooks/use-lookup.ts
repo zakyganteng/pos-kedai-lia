@@ -29,10 +29,10 @@ export type LookupResult<T extends { id: string }> = {
 };
 
 /**
- * Reads every page of a small reference list (staff, services, products,
+ * Reads every page of a small reference list (services, products,
  * customers) so ids in reports, queues and ledgers can be shown by name.
  *
- * `resource` is the collection path (e.g. `/staff`), `params` its filters.
+ * `resource` is the collection path (e.g. `/services`), `params` its filters.
  * Pass `null` as resource to stay idle. At most `maxPages` pages are read.
  */
 export function useLookup<T extends { id: string }>(

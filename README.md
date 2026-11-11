@@ -1,6 +1,6 @@
 # Lia POS
 
-A shared counter POS for Kedai Lia 287 and Lia Salon, built with a Next.js + TypeScript frontend, Go API, and PostgreSQL. `openapi.yaml` is the versioned API contract; implementation and verification notes are in `docs/`. The frontend uses the Boutique Lia theme from [design.md](design.md) and covers every browser-facing API operation: checkout, receipts and voids, salon queue, reports with CSV export, stock, catalog (products, categories, services), customers, staff, notifications, payment reconciliation, user administration and system status. Navigation is filtered by role and business-line type, matching the backend's own checks.
+A shared counter POS for Kedai Lia 287 and Lia Salon, built with a Next.js + TypeScript frontend, Go API, and PostgreSQL. `openapi.yaml` is the versioned API contract; implementation and verification notes are in `docs/`. The frontend uses the Boutique Lia theme from [design.md](design.md) and covers every browser-facing API operation: checkout, receipts and voids, salon queue, reports with CSV export, stock, catalog (products, categories, services), customers, notifications, payment reconciliation, user administration and system status. Navigation is filtered by role and business-line type, matching the backend's own checks.
 
 ## Layout
 
@@ -97,7 +97,7 @@ Configuration is environment-based. `HTTP_ADDR` defaults to `:8080`; timestamps 
 - Switch between assigned business lines without mixing records.
 - Sell products at the kedai and services at the salon. Cash confirmation is atomic; QRIS remains pending until a verified provider confirmation.
 - Receive/adjust tracked stock with a reason and movement ledger; concurrent sales must not oversell.
-- Look up optional customers and attribute salon services to staff.
+- Look up optional customers. Salon checkout and queues do not require staff records or attribution, matching kedai checkout.
 - Manage daily salon walk-ins through waiting, in service, completed or cancelled states.
 - Review confirmed-sales reports and export CSV. Revenue is not described as profit.
 - Review notification delivery failures without blocking completed payments.
