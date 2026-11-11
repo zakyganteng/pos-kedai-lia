@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"pos/internal/adapters"
 	"pos/internal/service"
 	"strings"
 	"testing"
@@ -23,6 +24,7 @@ func TestMalformedJSONBodyIsClientError(t *testing.T) {
 			if rec.Code != http.StatusBadRequest {
 				t.Errorf("%s body %q: status %d, want 400", target, body, rec.Code)
 			}
+
 			var payload struct {
 				Error struct {
 					Code      string `json:"code"`
@@ -43,5 +45,23 @@ func TestMalformedJSONBodyIsClientError(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatal("missing Content-Type accepted", rec.Code)
+	}
+}
+
+func TestBorderpayWebhookUsesVendorHeaders(t *testing.T) {
+	p := adapters.NewBorderpay("", "bp_test_route-fixture", "test-only-verification-token", "test-shop")
+	h := New(&service.Service{Payment: p}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	for _, tc := range []struct {
+		token string
+		want  int
+	}{{"", 401}, {"wrong", 401}, {"test-only-verification-token", 400}} {
+		req := httptest.NewRequest("POST", "/api/v1/webhooks/payments/borderpay", strings.NewReader(`{"event":"payment.paid","mode":"live","data":{}}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-borderpay-token", tc.token)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != tc.want {
+			t.Fatal("Borderpay header dispatch failed", rec.Code, tc.want)
+		}
 	}
 }

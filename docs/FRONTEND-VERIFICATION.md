@@ -53,7 +53,7 @@ Sources: `frontend/e2e/pos.spec.ts` and `frontend/e2e/security.spec.ts`.
 - Escape cancelled the switch without changing the selected business.
 - Confirming the switch opened the salon catalog with a fresh search context.
 - The kedai draft remained scoped to the kedai; it was neither moved nor merged into the salon order.
-- Selecting a service and its staff member produced a salon sale carrying the correct staff ID.
+- The previous staff-attribution check is superseded: salon sales now use the same staff-free checkout flow as kedai. Regression coverage checks the absence of staff controls and attribution on new sales.
 - Returning to the kedai restored its separate unfinished draft.
 
 ### 3. Uncertain successful checkout

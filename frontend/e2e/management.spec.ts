@@ -27,9 +27,10 @@ test("owner reaches every management screen on both lines without errors", async
   await ownerLogin(page);
 
   await chooseLine(page, fixtures.kedai.name);
+  await expect(page.getByRole("navigation", { name: "Navigasi utama" }).getByRole("link", { name: "Staf", exact: true })).toHaveCount(0);
   for (const [label, heading] of [
     ["Struk", "Struk"], ["Laporan", "Laporan"], ["Stok", "Stok"], ["Katalog", "Katalog"],
-    ["Pelanggan", "Pelanggan"], ["Staf", "Staf"], ["Notifikasi", "Notifikasi"],
+    ["Pelanggan", "Pelanggan"], ["Notifikasi", "Notifikasi"],
     ["Rekonsiliasi", "Rekonsiliasi"], ["Pengguna", "Pengguna"], ["Sistem", "Sistem"],
   ]) {
     await openNav(page, label);
@@ -40,6 +41,7 @@ test("owner reaches every management screen on both lines without errors", async
   await expect(page.getByRole("navigation", { name: "Navigasi utama" }).getByRole("link", { name: "Antrean" })).toHaveCount(0);
 
   await chooseLine(page, fixtures.salon.name);
+  await expect(page.getByRole("navigation", { name: "Navigasi utama" }).getByRole("link", { name: "Staf", exact: true })).toHaveCount(0);
   await openNav(page, "Antrean");
   await expect(page.getByRole("heading", { level: 1, name: "Antrean" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Navigasi utama" }).getByRole("link", { name: "Stok" })).toHaveCount(0);
@@ -92,7 +94,7 @@ test("product admin, stock receipt and the stock ledger persist through the API"
   expect(errors).toEqual([]);
 });
 
-test("customers, staff and the salon queue run through their full flow", async ({ page }) => {
+test("customers and the salon queue run through their full flow without staff", async ({ page }) => {
   const errors = trackBrowserErrors(page);
   await ownerLogin(page);
   await chooseLine(page, fixtures.salon.name);
@@ -107,23 +109,16 @@ test("customers, staff and the salon queue run through their full flow", async (
   await expect(page.getByRole("cell", { name: "[UJI E2E] Pelanggan salon" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "+6281234567890" })).toBeVisible();
 
-  await openNav(page, "Staf");
-  await page.getByRole("button", { name: /^Tambah staf/ }).click();
-  dialog = page.getByRole("dialog");
-  await dialog.getByLabel("Nama", { exact: true }).fill("[UJI E2E] Staf kedua");
-  await dialog.getByRole("button", { name: /^Simpan/ }).click();
-  await expect(dialog).toBeHidden();
-  await expect(page.getByRole("cell", { name: "[UJI E2E] Staf kedua" })).toBeVisible();
-
   await openNav(page, "Antrean");
   await page.getByRole("button", { name: "Tambah antrean" }).click();
   dialog = page.getByRole("dialog");
   await dialog.getByRole("checkbox", { name: /\[UJI E2E\] Layanan salon/ }).check();
-  await dialog.getByLabel("Staf (opsional)", { exact: true }).selectOption({ label: "[UJI E2E] Staf salon" });
+  await expect(dialog.getByLabel(/staf/i)).toHaveCount(0);
   await dialog.getByRole("button", { name: "Tambah ke antrean" }).click();
   await expect(dialog).toBeHidden();
   const card = page.locator("article, li").filter({ hasText: "[UJI E2E] Layanan salon" }).first();
   await expect(card).toContainText("Menunggu");
+  await expect(card).not.toContainText(/staf/i);
   await card.getByRole("button", { name: /Mulai layanan/ }).click();
   await expect(card).toContainText("Sedang dilayani");
   await card.getByRole("button", { name: /^Selesai/ }).click();
@@ -147,6 +142,7 @@ test("a confirmed cash sale is voided, leaves reports, and CSV export downloads"
 
   await openNav(page, "Laporan");
   await expect(page.getByText("Jumlah transaksi")).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Per staf", exact: true })).toHaveCount(0);
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Unduh CSV" }).click();
   expect((await download).suggestedFilename()).toMatch(/^penjualan-.*\.csv$/);
@@ -182,13 +178,11 @@ test("owner creates a user; cashier sees read-only screens and no admin links", 
 
   await signIn(page, fixtures.cashier.email, fixtures.cashier.password);
   const nav = page.getByRole("navigation", { name: "Navigasi utama" });
-  for (const hidden of ["Katalog", "Notifikasi", "Rekonsiliasi", "Pengguna", "Sistem", "Antrean"]) {
+  for (const hidden of ["Katalog", "Notifikasi", "Rekonsiliasi", "Pengguna", "Sistem", "Antrean", "Staf"]) {
     await expect(nav.getByRole("link", { name: hidden, exact: true })).toHaveCount(0);
   }
   await openNav(page, "Stok");
   await expect(page.getByRole("button", { name: "Catat penerimaan / penyesuaian" })).toHaveCount(0);
-  await openNav(page, "Staf");
-  await expect(page.getByRole("button", { name: /^Tambah staf/ })).toHaveCount(0);
   await openNav(page, "Laporan");
   await expect(page.getByRole("button", { name: "Unduh CSV" })).toHaveCount(0);
   await page.goto("/pengguna");

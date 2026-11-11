@@ -110,7 +110,7 @@ Salon queue, reports, and management beyond kedai categories remain later-stage 
 - The selected business name is explicit: Kedai Lia 287 or Lia Salon. Only assigned business lines are available.
 - The kedai catalog emphasizes product name, price, quantity, and available tracked stock. Category filters are backed by the API and combine with search: Semua, each active category, and Tanpa kategori. They do not apply to salon services.
 - Katalog separates category administration from checkout. Owners/admins can create, rename, archive, restore, and assign categories; used categories must be emptied before archival. Product counts include inactive products and are explicitly labeled.
-- The salon catalog emphasizes service name and price, with staff attribution near the relevant service selection. Duration appears only when available.
+- The salon catalog emphasizes service name and price, without staff attribution, matching kedai checkout. Duration appears only when available.
 - Customer association remains optional and does not dominate the initial checkout view.
 - The order summary lists names, quantities, amounts, and an authoritative total. Burgundy identifies the next step, such as `Lanjut ke pembayaran`.
 - Changing business line confirms that the current draft stays with its original user/business context; it is neither moved nor merged into the other business.

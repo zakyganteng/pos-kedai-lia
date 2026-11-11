@@ -65,6 +65,8 @@ func run(logger *slog.Logger) error {
 	var payment model.PaymentProvider = adapters.DisabledPayment{}
 	if c.PaymentProvider == "mock" {
 		payment = adapters.NewMock(c.PaymentBaseURL, c.PaymentAPIKey, c.WebhookSecret)
+	} else if c.PaymentProvider == "borderpay" {
+		payment = adapters.NewBorderpay(c.PaymentBaseURL, c.PaymentAPIKey, c.WebhookSecret, c.PaymentProjectSlug)
 	}
 	var notification model.NotificationProvider = adapters.DisabledNotification{}
 	if c.NotificationProvider == "http" {

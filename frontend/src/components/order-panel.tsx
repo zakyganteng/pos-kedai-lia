@@ -2,14 +2,11 @@
 
 import { useState } from 'react';
 import { rupiah } from '@/lib/format';
-import type { BusinessLine, Staff } from '@/lib/types';
+import type { BusinessLine } from '@/lib/types';
 import type { DraftApi } from '@/hooks/use-draft';
 import { MAX_QUANTITY, MIN_QUANTITY } from '@/hooks/use-draft';
-import { buildQuery, useDebounced, usePaged } from '@/hooks/use-paged';
 import { CustomerPicker } from './customer-picker';
 import { Dialog } from './dialog';
-
-const STAFF_PAGE_SIZE = 50;
 
 type OrderPanelProps = {
   line: BusinessLine;
@@ -26,21 +23,8 @@ export function OrderPanel({
   line, draft, onCheckout, checkoutDisabled, locked, checkoutBlockedReason,
   onBackToCatalog, onSessionExpired,
 }: OrderPanelProps) {
-  const salon = line.type === 'salon';
   const [customerOpen, setCustomerOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
-  const [staffSearch, setStaffSearch] = useState('');
-  const settledStaffSearch = useDebounced(staffSearch);
-  const staff = usePaged<Staff>(
-    salon ? `/staff${buildQuery({
-      businessLineId: line.id, active: true, page: 1, limit: STAFF_PAGE_SIZE,
-      search: settledStaffSearch.trim() || undefined,
-    })}` : null,
-    { onUnauthorized: onSessionExpired, errorMessage: 'Daftar staf belum dapat dimuat.' },
-  );
-  const staffTotal = staff.pagination?.total ?? staff.items.length;
-  const staffTruncated = staffTotal > staff.items.length;
-  const hasServiceItems = draft.draft.items.some(item => item.itemType === 'service');
 
   return (
     <section className="checkout-order panel" aria-labelledby="order-heading">
@@ -55,19 +39,6 @@ export function OrderPanel({
       </div>
 
       <div className="order-content stack" role="region" aria-label="Item dan pelanggan pesanan" tabIndex={0}>
-        {salon && hasServiceItems && !staff.forbidden ? (
-          <div className="field">
-            <label className="field-label" htmlFor="staff-search">Cari staf</label>
-            <input id="staff-search" className="input" type="search" autoComplete="off"
-              value={staffSearch} disabled={locked} onChange={event => setStaffSearch(event.target.value)} />
-            <span className="field-hint">
-              {staffTruncated
-                ? `Menampilkan ${staff.items.length} dari ${staffTotal} staf. Persempit pencarian untuk menemukan staf lainnya.`
-                : `Menampilkan seluruh ${staffTotal} staf aktif unit usaha ini.`}
-            </span>
-          </div>
-        ) : null}
-
         {draft.isEmpty ? (
           <p className="meta">Belum ada item. Pilih produk atau layanan untuk memulai.</p>
         ) : (
@@ -104,27 +75,6 @@ export function OrderPanel({
                     aria-label={`Hapus ${item.name}`} disabled={locked}
                     onClick={() => draft.removeItem(item.itemId)}>Hapus</button>
                 </div>
-                {salon && item.itemType === 'service' ? (
-                  <div className="field" style={{ gridColumn: '1 / -1' }}>
-                    <label className="field-label" htmlFor={`staff-${item.itemId}`}>Staf untuk {item.name}</label>
-                    <select id={`staff-${item.itemId}`} className="select" value={item.staffId ?? ''}
-                      disabled={locked || staff.forbidden || (staff.loading && staff.initial)}
-                      onChange={event => {
-                        const id = event.target.value;
-                        const chosen = staff.items.find(entry => entry.id === id);
-                        draft.setStaff(item.itemId, id === '' ? null : id, chosen?.name ?? null);
-                      }}>
-                      <option value="">Tanpa staf</option>
-                      {staff.items.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
-                    </select>
-                    {staff.forbidden ? <span className="field-hint">Akun ini tidak memiliki akses daftar staf; layanan dikirim tanpa atribusi staf.</span> : null}
-                    {staff.error !== null ? (
-                      <span className="field-hint">{staff.error}{' '}
-                        <button type="button" className="btn btn-secondary" onClick={staff.reload}>Coba lagi</button>
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
               </li>
             ))}
           </ul>

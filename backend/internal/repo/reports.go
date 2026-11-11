@@ -17,12 +17,8 @@ func (r *Repo) Report(ctx context.Context, line string, from, to time.Time, grou
 	case "paymentMethod":
 		groupSQL = `SELECT body->'payment'->>'method' AS key,sum((body->>'total')::bigint) AS amount,count(*) AS count FROM selected GROUP BY 1`
 		args = args[:3]
-	case "item", "staff":
-		key := "i.item_id::text"
-		if group == "staff" {
-			key = "COALESCE(i.staff_id::text,'unassigned')"
-		}
-		groupSQL = `SELECT ` + key + ` AS key,sum(i.line_total) AS amount,count(DISTINCT r.id) AS count FROM sale_items i JOIN selected r ON r.id=i.sale_id GROUP BY 1`
+	case "item":
+		groupSQL = `SELECT i.item_id::text AS key,sum(i.line_total) AS amount,count(DISTINCT r.id) AS count FROM sale_items i JOIN selected r ON r.id=i.sale_id GROUP BY 1`
 		args = args[:3]
 	}
 	query := `WITH selected AS MATERIALIZED (SELECT id,created_at,body FROM records WHERE kind='sales' AND line_id=$1 AND body->>'status'='paid' AND created_at >= $2 AND created_at < $3), totals AS (SELECT COALESCE(sum((body->>'total')::bigint),0) AS amount,count(*) AS count FROM selected), groups AS (` + groupSQL + `) SELECT t.amount,t.count,g.key,g.amount,g.count FROM totals t LEFT JOIN groups g ON true ORDER BY g.key`

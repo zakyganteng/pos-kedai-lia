@@ -74,7 +74,7 @@ test("login validation, cash quantity/customer/change, persisted receipt, print,
   expect(errors).toEqual([]);
 });
 
-test("business switch confirms preserved draft; salon sale retains staff attribution", async ({ page }) => {
+test("business switch confirms preserved draft; salon checkout needs no staff", async ({ page }) => {
   const errors = trackBrowserErrors(page);
   await ownerLogin(page);
   await addProduct(page);
@@ -86,17 +86,54 @@ test("business switch confirms preserved draft; salon sale retains staff attribu
   await page.getByLabel("Unit usaha", { exact: true }).selectOption(fixtures.salon.id);
   await page.getByRole("button", { name: `Pindah ke ${fixtures.salon.name}`, exact: true }).click();
   await page.getByRole("button", { name: new RegExp("Layanan salon") }).click();
-  await page.getByLabel(`Staf untuk ${fixtures.service.name}`, { exact: true }).selectOption(fixtures.staff.id);
+  await expect(page.getByLabel(/staf/i)).toHaveCount(0);
   await openCash(page, "25000");
   const responsePromise = saleResponse(page);
   await page.getByRole("button", { name: "Selesaikan pembayaran", exact: true }).click();
   const sale = await (await responsePromise).json();
   expect(sale.businessLineId).toBe(fixtures.salon.id);
-  expect(sale.items[0].staffId).toBe(fixtures.staff.id);
+  expect(sale.items[0].staffId).toBeNull();
   await expect(page).toHaveURL(new RegExp(`/struk/${sale.id}$`));
+  await expect(page.getByRole("article")).not.toContainText(/staf/i);
   await page.getByRole("link", { name: "Kembali ke kasir", exact: true }).click();
   await page.getByLabel("Unit usaha", { exact: true }).selectOption(fixtures.kedai.id);
   await expect(page.getByRole("spinbutton", { name: `Jumlah ${fixtures.product.name}`, exact: true })).toHaveValue("1");
+  expect(errors).toEqual([]);
+});
+
+test("legacy frozen checkout stays blocked for receipt review instead of risking a duplicate", async ({ page }) => {
+  const errors = trackBrowserErrors(page);
+  await ownerLogin(page);
+  await page.getByLabel("Unit usaha", { exact: true }).selectOption(fixtures.salon.id);
+  await page.getByRole("button", { name: new RegExp("Layanan salon") }).click();
+  await openCash(page, "25000");
+  await page.route("**/api/pos/sales?**", async route => {
+    if (route.request().method() !== "POST") { await route.continue(); return; }
+    const response = await route.fetch();
+    expect(response.status()).toBe(201);
+    await route.abort("failed");
+  });
+  await page.getByRole("button", { name: "Selesaikan pembayaran", exact: true }).click();
+  await expect(page.getByText("Hasil permintaan pembayaran belum diketahui", { exact: true }).first()).toBeVisible();
+  await page.unroute("**/api/pos/sales?**");
+  const key = await page.evaluate(() => {
+    const key = Object.keys(sessionStorage).find(key => key.includes("checkout."));
+    if (!key) throw new Error("Missing frozen checkout");
+    const attempt = JSON.parse(sessionStorage.getItem(key)!);
+    attempt.body.items[0].staffId = "11111111-2222-4333-8444-555555555555";
+    sessionStorage.setItem(key, JSON.stringify(attempt));
+    return key;
+  });
+  await page.reload();
+  await expect(page.getByText("Permintaan lama perlu diperiksa", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Kirim ulang permintaan yang sama", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Lanjut ke pembayaran", exact: true })).toBeDisabled();
+  await page.getByText("Permintaan ini sudah saya periksa dan tidak ada transaksinya", { exact: true }).click();
+  await expect(page.getByRole("button", { name: "Buang permintaan ini", exact: true })).toBeDisabled();
+  expect(await page.evaluate(key => sessionStorage.getItem(key), key)).not.toBeNull();
+  await page.getByRole("link", { name: "Periksa daftar struk", exact: true }).click();
+  await expect(page).toHaveURL(/\/struk$/);
+  expect(await page.evaluate(key => sessionStorage.getItem(key), key)).not.toBeNull();
   expect(errors).toEqual([]);
 });
 

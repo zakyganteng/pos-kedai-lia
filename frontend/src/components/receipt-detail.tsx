@@ -128,6 +128,7 @@ export function ReceiptDetail({ saleId }: { saleId: string }) {
             polling={result.polling}
             statusCheckFailed={result.statusCheckFailed}
             onCheckNow={result.reload}
+            saleId={sale.id}
           />
         </div>
       ) : null}

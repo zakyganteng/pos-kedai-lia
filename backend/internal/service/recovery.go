@@ -50,7 +50,7 @@ func (s *Service) reconcileRecovered(ctx context.Context, id string) error {
 				event.Outcome = "mismatch"
 			} else if sale.Payment.Status == to {
 				event.Outcome = "duplicate_state"
-			} else if !lib.PaymentTransition(sale.Payment.Status, to) {
+			} else if !s.paymentTransition(sale, to) {
 				event.Outcome = "terminal_conflict"
 			} else {
 				if e = s.applyPayment(ctx, r, &sale, to, event.OccurredAt); e != nil {

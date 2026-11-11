@@ -6,8 +6,7 @@ info:
     Design-first REST contract for Kedai Lia 287 and Lia Salon POS.
     Amounts are integer IDR rupiah. Timestamps are RFC 3339 UTC.
     All business-line resources must be authorized for the caller.
-    Payment provider is unconfirmed; provider-specific QRIS behavior is implemented
-    behind a POS-owned adapter. A standalone mock payment-gateway service is an
+    QRIS supports Borderpay through a server-side adapter. A standalone mock payment-gateway service is an
     external test dependency and is specified separately in PRD-mock-payment-gateway.md.
 
     ## Roles
@@ -22,8 +21,8 @@ info:
     ## Payment webhook boundary
     `POST /webhooks/payments/{provider}` is the only unauthenticated write surface.
     The POS never trusts a browser-reported payment result. The provider adapter
-    verifies an HMAC-SHA256 signature over the exact raw request bytes and maps the
-    payload to the normalized `PaymentWebhookEvent` before any payment state change.
+    verifies a mock HMAC-SHA256 signature over the exact raw request bytes, or a
+    Borderpay verification token plus authenticated provider status, before any payment state change.
     See `PaymentWebhookEvent` and the operation description for the header names,
     signature encoding and the mock-gateway test boundary.
 servers:
@@ -43,8 +42,8 @@ tags:
     description: Products for the food and beverage line and services for the salon line.
   - name: Categories
     description: Editable product categories, scoped to a food and beverage line.
-  - name: Customers and staff
-    description: Customer records and salon staff records per business line.
+  - name: Customers
+    description: Customer records per business line.
   - name: Inventory
     description: Stock levels, reservations and the append-only stock movement ledger.
   - name: Sales and payments
@@ -372,7 +371,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
   /customers:
     get:
-      tags: [Customers and staff]
+      tags: [Customers]
       operationId: listCustomers
       summary: Search customers
       parameters:
@@ -391,7 +390,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
     post:
-      tags: [Customers and staff]
+      tags: [Customers]
       operationId: createCustomer
       summary: Create customer
       parameters:
@@ -411,45 +410,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
-  /staff:
-    post:
-      tags: [Customers and staff]
-      operationId: createStaff
-      summary: Create a staff member
-      x-roles: [owner, admin]
-      parameters:
-        - $ref: '#/components/parameters/BusinessLineId'
-      requestBody:
-        required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/StaffInput' } } }
-      responses:
-        '201':
-          description: Staff created
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Staff' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-    get:
-      tags: [Customers and staff]
-      operationId: listStaff
-      summary: List staff for a business line
-      parameters:
-        - $ref: '#/components/parameters/BusinessLineId'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/Search'
-        - $ref: '#/components/parameters/Active'
-      responses:
-        '200':
-          description: Staff page
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/StaffPage' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
   /inventory:
     get:
       tags: [Inventory]
@@ -556,7 +516,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/CreateSaleRequest' }
       responses:
-        '502': { description: 'External intent unresolved. Retry same idempotency key; background recovery also retries automatically. Reservations remain held until authoritative expiry or verified terminal event.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '502': { description: 'External intent unresolved or rejected. Retry the same idempotency key after correcting definitive rejections; uncertain failures also retry automatically. Reservations remain held until authoritative expiry or verified terminal event.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '503': { description: Payment provider disabled, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '201':
           description: Sale created; QRIS may remain pending
@@ -574,6 +534,7 @@ paths:
       tags: [Sales and payments]
       operationId: getSale
       summary: Get sale details and receipt data
+      description: Pending/expired Borderpay payments are refreshed against authenticated provider status, at most once per 15 seconds per payment. Provider errors do not imply payment failure.
       responses:
         '200':
           description: Sale detail
@@ -583,6 +544,9 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '502': { description: Borderpay status could not be verified, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '503': { description: The original payment provider is not configured, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /sales/{saleId}/void:
     parameters:
       - $ref: '#/components/parameters/SaleId'
@@ -623,6 +587,7 @@ paths:
       tags: [Sales and payments]
       operationId: getPayment
       summary: Get payment state
+      description: Pending/expired Borderpay payments use the same throttled authenticated status refresh as sale detail.
       parameters:
         - name: paymentId
           in: path
@@ -637,6 +602,57 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '502': { description: Borderpay status could not be verified, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '503': { description: The original payment provider is not configured, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /webhooks/payments/borderpay:
+    post:
+      tags: [Webhooks]
+      operationId: receiveBorderpayWebhook
+      summary: Receive a native Borderpay QRIS notification
+      description: |
+        Requires the configured Borderpay adapter and matching dashboard verification token.
+        No POS login token, mock signature, or mock idempotency header is required.
+        The server validates the project slug, key mode, event/status agreement, QRIS method,
+        and merchant reference, then fetches authenticated Borderpay status.
+        Webhook amount must equal customer_pays; order_amount must match the stored sale total.
+        Notifications are deduplicated semantically and persisted before acknowledgment.
+        Paid is mapped to confirmed. A late paid after expired can confirm only when stock
+        is still available; otherwise reconciliation retains a terminal_conflict.
+      security: []
+      parameters:
+        - name: x-borderpay-token
+          in: header
+          required: true
+          description: Dashboard webhook verification token, compared using a timing-safe helper.
+          schema: { type: string }
+        - name: x-borderpay-event
+          in: header
+          description: When supplied, must equal the body event.
+          schema: { type: string, enum: [payment.paid, payment.expired, payment.failed] }
+        - name: x-borderpay-mode
+          in: header
+          description: When supplied, must equal the body mode and configured API key mode.
+          schema: { type: string, enum: [test, live] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BorderpayWebhookEvent' }
+      responses:
+        '200':
+          description: Verified event applied, already processed, or retained for intent recovery
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [outcome]
+                properties:
+                  outcome: { type: string, enum: [applied, duplicate, duplicate_state, unresolved] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '502': { description: Borderpay status lookup failed; no payment success assumed, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /webhooks/payments/{provider}:
     post:
       tags: [Webhooks]
@@ -667,8 +683,8 @@ paths:
         - name: provider
           in: path
           required: true
-          description: Configured provider adapter name; `mock` in development.
-          schema: { type: string, minLength: 1 }
+          description: Development mock adapter. Native Borderpay uses the separately documented concrete route.
+          schema: { type: string, enum: [mock] }
         - name: X-Idempotency-Key
           in: header
           required: true
@@ -763,7 +779,7 @@ paths:
       tags: [Reports]
       operationId: getSalesReport
       summary: Aggregate confirmed sales for a date range
-      description: 'Inclusive business-timezone date range of 1 to 366 days. Cashiers may only use groupBy `day` or `paymentMethod`; `item` and `staff` require owner or admin.'
+      description: 'Inclusive business-timezone date range of 1 to 366 days. Cashiers may only use groupBy `day` or `paymentMethod`; `item` requires owner or admin.'
       parameters:
         - $ref: '#/components/parameters/BusinessLineId'
         - name: from
@@ -778,7 +794,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [day, paymentMethod, item, staff]
+            enum: [day, paymentMethod, item]
             default: day
       responses:
         '200':
@@ -959,7 +975,7 @@ paths:
     parameters:
       - { name: customerId, in: path, required: true, schema: { type: string, format: uuid } }
     get:
-      tags: [Customers and staff]
+      tags: [Customers]
       operationId: getCustomer
       summary: Get customer details
       responses:
@@ -969,7 +985,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
-      tags: [Customers and staff]
+      tags: [Customers]
       operationId: updateCustomer
       summary: Update customer
       x-roles: [owner, admin]
@@ -984,47 +1000,9 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
     delete:
-      tags: [Customers and staff]
+      tags: [Customers]
       operationId: archiveCustomer
       summary: Archive customer
-      x-roles: [owner, admin]
-      responses:
-        '204': { description: Archived }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-  /staff/{staffId}:
-    parameters:
-      - { name: staffId, in: path, required: true, schema: { type: string, format: uuid } }
-    get:
-      tags: [Customers and staff]
-      operationId: getStaff
-      summary: Get staff details
-      responses:
-        '200': { description: Staff, content: { application/json: { schema: { $ref: '#/components/schemas/Staff' } } } }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-    patch:
-      tags: [Customers and staff]
-      operationId: updateStaff
-      summary: Update staff
-      x-roles: [owner, admin]
-      requestBody:
-        required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/StaffPatch' } } }
-      responses:
-        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Staff' } } } }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-    delete:
-      tags: [Customers and staff]
-      operationId: archiveStaff
-      summary: Archive staff; historical sale snapshots remain
       x-roles: [owner, admin]
       responses:
         '204': { description: Archived }
@@ -1255,7 +1233,7 @@ components:
       properties:
         provider: { type: string }
         configured: { type: boolean }
-        productionSupported: { type: boolean, const: false }
+        productionSupported: { type: boolean, description: 'True for the Borderpay adapter; not deployment approval. Overall productionReady remains false.' }
     UserInput:
       type: object
       additionalProperties: false
@@ -1301,20 +1279,6 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 160 }
         phone: { type: [string, 'null'], maxLength: 40 }
-        active: { type: boolean }
-    StaffInput:
-      type: object
-      additionalProperties: false
-      required: [name]
-      properties:
-        name: { type: string, minLength: 1, maxLength: 160 }
-        active: { type: boolean, default: true }
-    StaffPatch:
-      type: object
-      minProperties: 1
-      additionalProperties: false
-      properties:
-        name: { type: string, minLength: 1, maxLength: 160 }
         active: { type: boolean }
     ReconciliationOutcome:
       type: string
@@ -1491,16 +1455,6 @@ components:
         name: { type: string, minLength: 1, maxLength: 160 }
         phone: { type: [string, 'null'], maxLength: 40, description: 'Indonesian local or international number; normalized to E.164 before storage.' }
         active: { type: boolean, default: true }
-    Staff:
-      type: object
-      required: [id, businessLineId, name, active, createdAt, updatedAt]
-      properties:
-        id: { type: string, format: uuid }
-        businessLineId: { type: string, format: uuid }
-        name: { type: string }
-        active: { type: boolean }
-        createdAt: { type: string, format: date-time }
-        updatedAt: { type: string, format: date-time }
     InventoryItem:
       type: object
       required: [productId, productName, quantity, reservedQuantity, availableQuantity, lowStockThreshold]
@@ -1552,7 +1506,6 @@ components:
         itemType: { type: string, enum: [product, service] }
         itemId: { type: string, format: uuid }
         quantity: { type: integer, minimum: 1, maximum: 1000 }
-        staffId: { type: string, format: uuid, description: Only salon services may carry a staff attribution. }
     SaleItem:
       type: object
       required: [id, itemType, itemId, displayName, unitPrice, quantity, lineTotal, stockTracked]
@@ -1564,7 +1517,7 @@ components:
         unitPrice: { type: integer, minimum: 0 }
         quantity: { type: integer, minimum: 1 }
         lineTotal: { type: integer, minimum: 0 }
-        staffId: { type: [string, 'null'], format: uuid }
+        staffId: { type: [string, 'null'], format: uuid, readOnly: true, deprecated: true, description: 'Legacy attribution retained for historical snapshots. Null on new sales.' }
         stockTracked: { type: boolean, description: Stock-tracking snapshot used to settle reservations. }
     CreateSaleRequest:
       type: object
@@ -1615,7 +1568,32 @@ components:
         intentAttempts: { type: integer, minimum: 0 }
         nextIntentAt: { type: [string, 'null'], format: date-time }
         intentError: { type: [string, 'null'], description: Sanitized recovery error code }
+        provider: { type: string, enum: [mock, borderpay], readOnly: true }
+        gatewayMode: { type: string, enum: [test, live], readOnly: true }
+        customerPays: { type: integer, minimum: 1, maximum: 1000000000000, readOnly: true, description: 'Borderpay customer-payable total, including any customer-borne fees. Payment amount remains the original order total.' }
+        nextStatusAt: { type: string, format: date-time, readOnly: true, description: Earliest next automatic Borderpay status lookup. }
+        statusError: { type: string, const: STATUS_LOOKUP_FAILED, readOnly: true, description: Last provider lookup failed; throttled reads continue reporting the failure until verification succeeds. }
         createdAt: { type: string, format: date-time }
+    BorderpayWebhookEvent:
+      type: object
+      required: [event, mode, data]
+      description: Native vendor notification. Unknown provider fields are accepted; duplicate JSON keys are rejected.
+      properties:
+        event: { type: string, enum: [payment.paid, payment.expired, payment.failed] }
+        mode: { type: string, enum: [test, live] }
+        data:
+          type: object
+          required: [slug, reference_id, status, amount, method]
+          properties:
+            slug: { type: string, description: Must equal PAYMENT_PROJECT_SLUG. }
+            mode: { type: string, enum: [test, live], description: Optional nested mode must agree with the top-level mode. }
+            reference_id: { type: string, format: uuid, description: POS sale UUID. }
+            order_id: { type: string, description: When present and nonempty, must match reference_id. }
+            status: { type: string, enum: [paid, expired, failed], description: Must agree with event. }
+            amount: { type: integer, minimum: 1, maximum: 1000000000000, description: Gross paid by customer, not necessarily original order total. }
+            method: { type: string, const: qris }
+            fee: { type: integer }
+            merchant_receives: { type: integer }
     PaymentWebhookEvent:
       type: object
       additionalProperties: false
@@ -1711,7 +1689,6 @@ components:
           maxItems: 20
           uniqueItems: true
           items: { type: string, format: uuid }
-        staffId: { type: [string, 'null'], format: uuid }
         note: { type: [string, 'null'], maxLength: 300 }
     QueueEntryPatch:
       type: object
@@ -1719,7 +1696,6 @@ components:
       additionalProperties: false
       properties:
         status: { $ref: '#/components/schemas/QueueStatus' }
-        staffId: { type: [string, 'null'], format: uuid, description: Immutable once the entry is completed. }
         saleId: { type: string, format: uuid, description: 'Only settable on a completed entry, must reference a paid sale in the same line covering every requested service, and is immutable once set.' }
     QueueEntry:
       type: object
@@ -1733,7 +1709,7 @@ components:
         serviceIds:
           type: array
           items: { type: string, format: uuid }
-        staffId: { type: [string, 'null'], format: uuid }
+        staffId: { type: [string, 'null'], format: uuid, readOnly: true, deprecated: true, description: 'Legacy attribution retained for historical entries. Null on new entries.' }
         saleId: { type: [string, 'null'], format: uuid }
         note: { type: [string, 'null'] }
         status: { $ref: '#/components/schemas/QueueStatus' }
@@ -1764,12 +1740,6 @@ components:
         - type: object
           properties:
             data: { type: array, items: { $ref: '#/components/schemas/Customer' } }
-    StaffPage:
-      allOf:
-        - $ref: '#/components/schemas/PageBase'
-        - type: object
-          properties:
-            data: { type: array, items: { $ref: '#/components/schemas/Staff' } }
     InventoryPage:
       allOf:
         - $ref: '#/components/schemas/PageBase'

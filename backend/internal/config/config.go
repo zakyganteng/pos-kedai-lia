@@ -13,6 +13,7 @@ type Config struct {
 	DatabaseURL, Addr, Env, PaymentProvider, PaymentBaseURL, PaymentAPIKey, WebhookSecret, NotificationProvider, NotificationBaseURL, NotificationAPIKey, Destination, NotificationTemplate, JWTSecret string
 	SessionTTL                                                                                                                                                                                         time.Duration
 	Zone                                                                                                                                                                                               *time.Location
+	PaymentProjectSlug                                                                                                                                                                                 string
 }
 
 func env(key, fallback string) string {
@@ -32,6 +33,7 @@ func Load() (Config, error) {
 		PaymentBaseURL:       os.Getenv("PAYMENT_BASE_URL"),
 		PaymentAPIKey:        os.Getenv("PAYMENT_API_KEY"),
 		WebhookSecret:        os.Getenv("PAYMENT_WEBHOOK_SECRET"),
+		PaymentProjectSlug:   os.Getenv("PAYMENT_PROJECT_SLUG"),
 		NotificationProvider: env("NOTIFICATION_PROVIDER", "disabled"),
 		NotificationBaseURL:  os.Getenv("NOTIFICATION_BASE_URL"),
 		NotificationAPIKey:   os.Getenv("NOTIFICATION_API_KEY"),
@@ -57,14 +59,32 @@ func Load() (Config, error) {
 	if e != nil {
 		return c, fmt.Errorf("invalid BUSINESS_TIMEZONE")
 	}
-	if c.PaymentProvider != "disabled" && c.PaymentProvider != "mock" {
-		return c, fmt.Errorf("unsupported PAYMENT_PROVIDER: real vendor not integrated")
+	if c.PaymentProvider != "disabled" && c.PaymentProvider != "mock" && c.PaymentProvider != "borderpay" {
+		return c, fmt.Errorf("PAYMENT_PROVIDER must be disabled, mock, or borderpay")
 	}
 	if c.NotificationProvider != "disabled" && c.NotificationProvider != "http" {
 		return c, fmt.Errorf("unsupported NOTIFICATION_PROVIDER: real vendor not integrated")
 	}
-	if c.Env == "production" && (c.PaymentProvider != "disabled" || c.NotificationProvider != "disabled") {
+	if c.Env == "production" && (c.PaymentProvider == "mock" || c.NotificationProvider == "http") {
 		return c, fmt.Errorf("development adapters cannot run in production; real vendors are release dependencies")
+	}
+	if c.PaymentProvider == "borderpay" {
+		if (!strings.HasPrefix(c.PaymentAPIKey, "bp_test_") && !strings.HasPrefix(c.PaymentAPIKey, "bp_live_")) || len(c.PaymentAPIKey) <= 8 || strings.ContainsAny(c.PaymentAPIKey, " \t\r\n") {
+			return c, fmt.Errorf("borderpay requires a bp_test_ or bp_live_ PAYMENT_API_KEY")
+		}
+		if len(c.WebhookSecret) < 16 || strings.TrimSpace(c.WebhookSecret) != c.WebhookSecret || strings.ContainsAny(c.WebhookSecret, "\r\n") || strings.TrimSpace(c.PaymentProjectSlug) == "" || len(c.PaymentProjectSlug) > 100 {
+			return c, fmt.Errorf("borderpay requires PAYMENT_PROJECT_SLUG and PAYMENT_WEBHOOK_SECRET (16+ bytes)")
+		}
+		if c.PaymentBaseURL == "" {
+			c.PaymentBaseURL = "https://borderpay.id/api/v1"
+		}
+		if e = providerURL(c.PaymentBaseURL, c.Env); e != nil {
+			return c, fmt.Errorf("PAYMENT_BASE_URL: %w", e)
+		}
+		u, _ := url.Parse(c.PaymentBaseURL)
+		if u.Scheme != "https" && !(c.Env == "test" && strings.HasPrefix(c.PaymentAPIKey, "bp_test_") && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost" || u.Hostname() == "::1")) {
+			return c, fmt.Errorf("borderpay requires HTTPS (HTTP loopback allowed only in APP_ENV=test with a test key)")
+		}
 	}
 	if c.PaymentProvider == "mock" {
 		if len(c.PaymentAPIKey) < 1 || len(c.WebhookSecret) < 16 {

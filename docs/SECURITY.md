@@ -12,7 +12,7 @@ Clients call the Go API with an opaque bearer token returned by login. There is 
 | Business-line data | Cashier reads or sells another line | Membership checks on lists and every referenced ID; restricted-line fixture tests. |
 | Administrative actions | Cashier changes price, stock, users or secrets | Server-side role checks; API denies requests even if client navigation is bypassed. |
 | Checkout | Tampered amount, retry double booking, stock races | Server loads active catalog prices, immutable snapshots, bounded integer arithmetic, transaction/locks, payload-fingerprinted idempotency, concurrency tests. |
-| Webhook | Forged success, changed amount, repeated/out-of-order event | Exact-body authenticated provider adapter, compare IDs/currency/amount, transactional event deduplication, monotonic terminal state policy and reconciliation history. |
+| Webhook | Forged success, changed amount, repeated/out-of-order event | Mock exact-body HMAC; Borderpay timing-safe token verification plus authenticated status lookup and project/mode/amount checks. Transactional event deduplication and reconciliation history. Borderpay late paid after expiry requires available stock and atomic fulfillment. |
 | Customer contact data | Injection or unintended disclosure | Strict validated JSON, parameterized SQL, line scope, minimal response fields, role restrictions, no raw payloads in logs. |
 | Cross-origin browser request | Cross-site request forgery, token theft | API accepts bearer credentials only, never ambient cookies, and sends no CORS headers. A future cookie-based frontend must add SameSite cookies and same-origin mutation Origin validation. |
 | Provider transport | SSRF, token leakage, false provider response | Operator-only configured endpoints, no client-controlled URLs, timeouts/bounded bodies/no secret logs. TLS in production. Mock adapter refused in production. |
@@ -23,7 +23,7 @@ Clients call the Go API with an opaque bearer token returned by login. There is 
 
 Application build/test evidence does not authorize a live deployment. Before real transactions:
 
-- Select and implement an approved real payment vendor adapter and signature scheme. Validate sandbox retries, terminal states, expiry/reconciliation, and the QRIS payload with that vendor.
+- Validate the implemented Borderpay adapter with the merchant's own sandbox project: retries, token-authenticated public webhook delivery, terminal states, expiry/reconciliation, and actual QRIS payload acceptance. Local HTTP doubles do not prove provider acceptance.
 - Select the WhatsApp provider, approved templates, destination rules and consent requirements. Verify provider idempotency and delivery status. Disabled or unavailable delivery must not report success.
 - Agree owner/Admin/Cashier assignments and line membership. Replace the default owner credentials (`owner@owner.com` / `owner-password-123`, published in this repository) with a unique secret before go-live.
 - Approve refund/void/stock reversal policy before exposing money-moving refund actions. No automatic refunds are implemented solely from a browser request.

@@ -24,7 +24,6 @@ export const NAV: readonly NavItem[] = [
   { href: '/stok', label: 'Stok', lineType: 'food_beverage' },
   { href: '/katalog', label: 'Katalog', roles: MANAGERS },
   { href: '/pelanggan', label: 'Pelanggan' },
-  { href: '/staf', label: 'Staf' },
   { href: '/notifikasi', label: 'Notifikasi', roles: MANAGERS },
   { href: '/rekonsiliasi', label: 'Rekonsiliasi', roles: MANAGERS },
   { href: '/pengguna', label: 'Pengguna', roles: OWNER },

@@ -40,8 +40,6 @@ function buildBody(draft: DraftApi, method: PaymentMethod, cashReceived: number)
       itemId: item.itemId,
       quantity: item.quantity,
     };
-    // Only salon services may carry staff attribution.
-    if (item.itemType === 'service' && item.staffId !== null) line.staffId = item.staffId;
     return line;
   });
 

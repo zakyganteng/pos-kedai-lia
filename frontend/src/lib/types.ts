@@ -14,9 +14,6 @@ export type ServicePatch = Schemas["ServicePatch"];
 export type Customer = Schemas["Customer"];
 export type CustomerInput = Schemas["CustomerInput"];
 export type CustomerPatch = Schemas["CustomerPatch"];
-export type Staff = Schemas["Staff"];
-export type StaffInput = Schemas["StaffInput"];
-export type StaffPatch = Schemas["StaffPatch"];
 export type InventoryItem = Schemas["InventoryItem"];
 export type InventoryMovement = Schemas["InventoryMovement"];
 export type InventoryMovementInput = Schemas["InventoryMovementInput"];
@@ -43,5 +40,5 @@ export type Integrations = {
   notification: IntegrationStatus;
   productionReady: boolean;
 };
-export type ReportGroupBy = "day" | "paymentMethod" | "item" | "staff";
+export type ReportGroupBy = "day" | "paymentMethod" | "item";
 export type Page<T> = { data: T[]; pagination: Pagination };

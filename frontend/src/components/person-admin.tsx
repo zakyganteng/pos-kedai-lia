@@ -23,10 +23,6 @@ const STATUS_FILTERS = [
   { value: 'all', label: 'Semua', active: undefined as boolean | undefined },
 ] as const;
 
-/**
- * Shape shared by `/customers` and `/staff`. Staff never carry a phone, which
- * is why the field is optional rather than nullable-but-present.
- */
 export type PersonRecord = {
   id: string;
   name: string;
@@ -44,7 +40,7 @@ type PersonAdminProps = {
   noun: string;
   /** Prefix for DOM ids and storage-free state keys. */
   idPrefix: string;
-  /** Customers carry a phone number; staff do not. */
+  /** Show the optional customer phone number. */
   withPhone: boolean;
   /** The backend lets this role create a record here. */
   canCreate: boolean;
@@ -88,9 +84,7 @@ function DuplicateHint({ failure, withPhone }: { failure: MutationFailure; withP
 
 /**
  * List, search, create, rename, archive and restore for a per-line roster of
- * people. `/customers` and `/staff` are the same resource with two
- * differences the backend itself draws: customers have a phone number, and a
- * cashier may create a customer but not a staff member.
+ * customers. A cashier may create a customer; only owner/admin may edit.
  */
 export function PersonAdmin({
   line,

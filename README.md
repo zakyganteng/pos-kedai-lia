@@ -1,6 +1,6 @@
 # Lia POS
 
-A shared counter POS for Kedai Lia 287 and Lia Salon, built with a Next.js + TypeScript frontend, Go API, and PostgreSQL. `openapi.yaml` is the versioned API contract; implementation and verification notes are in `docs/`. The frontend uses the Boutique Lia theme from [design.md](design.md) and covers every browser-facing API operation: checkout, receipts and voids, salon queue, reports with CSV export, stock, catalog (products, categories, services), customers, staff, notifications, payment reconciliation, user administration and system status. Navigation is filtered by role and business-line type, matching the backend's own checks.
+A shared counter POS for Kedai Lia 287 and Lia Salon, built with a Next.js + TypeScript frontend, Go API, and PostgreSQL. `openapi.yaml` is the versioned API contract; implementation and verification notes are in `docs/`. The frontend uses the Boutique Lia theme from [design.md](design.md) and covers every browser-facing API operation: checkout, receipts and voids, salon queue, reports with CSV export, stock, catalog (products, categories, services), customers, notifications, payment reconciliation, user administration and system status. Navigation is filtered by role and business-line type, matching the backend's own checks.
 
 ## Layout
 
@@ -16,7 +16,7 @@ project/
   openapi.yaml   OpenAPI 3.1 contract
 ```
 
-The standalone mock payment gateway is an external dependency and is not delivered in this project. The test suite can use a deterministic HTTP test double that does not collect money or generate real QRIS.
+QRIS supports Borderpay through a server-side adapter. The optional standalone mock payment gateway remains an external development dependency. Tests use deterministic HTTP doubles that do not collect money or generate real QRIS.
 
 ## Start locally with Docker
 
@@ -51,7 +51,7 @@ PostgreSQL is at `127.0.0.1:5432`, database `pos`, user `postgres`, password `po
 
 All three ports bind to host loopback only: `FRONTEND_PORT` (default 3000), `BACKEND_PORT` (default 8080), and `DB_PORT` (default 5432). The API sends no CORS headers. Next.js provides a same-origin, allowlisted proxy; authentication tokens stay in HTTP-only cookies and are attached to Go requests on the server. Production deployment requires HTTPS.
 
-Cash checkout works without integration credentials. QRIS requires an external test gateway; notifications remain visibly undelivered until an adapter is configured. `make down` stops the stack without deleting its database volume; `docker compose down -v` deletes it, and the next `make dev` starts fresh with only the business lines and the default owner. See [operations](docs/OPERATIONS.md) for configuration, first-deployment owner setup, and backup/restore.
+Cash checkout works without integration credentials. QRIS supports `PAYMENT_PROVIDER=borderpay` with a project API key, slug, and webhook verification token; see [Borderpay setup and sandbox verification](docs/OPERATIONS.md#borderpay-qris). The existing cashier QRIS flow is unchanged. Notifications remain visibly undelivered until an adapter is configured. `make down` stops the stack without deleting its database volume; `docker compose down -v` deletes it, and the next `make dev` starts fresh with only the business lines and the default owner. See [operations](docs/OPERATIONS.md) for configuration, first-deployment owner setup, and backup/restore.
 
 ## Frontend development
 
@@ -97,7 +97,7 @@ Configuration is environment-based. `HTTP_ADDR` defaults to `:8080`; timestamps 
 - Switch between assigned business lines without mixing records.
 - Sell products at the kedai and services at the salon. Cash confirmation is atomic; QRIS remains pending until a verified provider confirmation.
 - Receive/adjust tracked stock with a reason and movement ledger; concurrent sales must not oversell.
-- Look up optional customers and attribute salon services to staff.
+- Look up optional customers. Salon checkout and queues do not require staff records or attribution, matching kedai checkout.
 - Manage daily salon walk-ins through waiting, in service, completed or cancelled states.
 - Review confirmed-sales reports and export CSV. Revenue is not described as profit.
 - Review notification delivery failures without blocking completed payments.
@@ -110,4 +110,4 @@ See [completion and PRD traceability](docs/COMPLETION.md) for scope, verificatio
 
 ## Before live production use
 
-A production-shaped implementation is not a certified live payment system. Real deployment requires a selected payment provider and adapter, WhatsApp provider/templates/consent rules, owner-approved cancellation/accounting policies, staging backup restoration and successful owner/staff UAT. Until approved, integrations remain disabled or explicitly development-only. No real QRIS or WhatsApp compatibility is fabricated.
+A production-shaped implementation is not a certified live payment system. Borderpay QRIS is implemented, but deployment still requires sandbox verification with the merchant's own project, webhook delivery through the actual HTTPS proxy, WhatsApp provider/templates/consent rules, owner-approved cancellation/accounting policies, staging backup restoration and successful owner/staff UAT. Defaults remain disabled; mock payments and generic HTTP notifications are development-only.

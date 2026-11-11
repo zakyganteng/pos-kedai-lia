@@ -121,7 +121,7 @@ func (s *Service) Integrations(u model.User) (any, error) {
 		return nil, err
 	}
 	status := func(provider string, configured bool) map[string]any {
-		return map[string]any{"provider": provider, "configured": configured, "productionSupported": false}
+		return map[string]any{"provider": provider, "configured": configured, "productionSupported": provider == "borderpay"}
 	}
 	return map[string]any{
 		"payment":         status(s.Payment.Name(), s.Payment.Name() != "disabled"),

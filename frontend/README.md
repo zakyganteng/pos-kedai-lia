@@ -26,20 +26,21 @@ Every screen is scoped to the selected business line. Links are shown only to ro
 | Route | Who | Endpoints |
 | --- | --- | --- |
 | `/login` | everyone | `/auth/login`, `/auth/logout`, `/auth/me` (via `/api/session`) |
-| `/kasir` | all roles | products/services/categories/customers/staff reads, `POST /sales`, `GET /payments/{id}` |
+| `/kasir` | all roles | products/services/categories/customers reads, `POST /sales`, `GET /payments/{id}` |
 | `/struk`, `/struk/[id]` | all roles; void for owner/admin | `GET /sales`, `GET /sales/{id}`, `POST /sales/{id}/void` |
 | `/antrean` | all roles, salon lines | `GET/POST /salon/queue`, `PATCH /salon/queue/{id}` (link a paid sale) |
-| `/laporan` | all roles; item/staff grouping and CSV for owner/admin | `/reports/sales`, `/reports/sales.csv`, `/reports/inventory` (kedai) |
+| `/laporan` | all roles; item grouping and CSV for owner/admin | `/reports/sales`, `/reports/sales.csv`, `/reports/inventory` (kedai) |
 | `/stok` | read: all roles, kedai; receive: owner/admin; adjust: owner | `/inventory`, `GET/POST /inventory/movements` |
 | `/katalog` | owner/admin | kedai: products CRUD + categories/assignments; salon: services CRUD |
 | `/pelanggan` | list/create: all roles; edit/archive: owner/admin | `/customers`, `/customers/{id}` |
-| `/staf` | list: all roles; write: owner/admin | `/staff`, `/staff/{id}` |
 | `/notifikasi` | owner/admin | `GET /notifications`, `POST /notifications/{id}/retry` |
 | `/rekonsiliasi` | owner/admin | `GET /payments/reconciliation` |
 | `/pengguna` | owner | `/users`, `/users/{id}`, `/business-lines` |
 | `/sistem` | owner | `/integrations`, `/health/live`, `/health/ready` |
 
 The only API operation without a browser screen is the provider webhook `POST /webhooks/payments/{provider}`, which is server-to-server and is never proxied. A fresh database has no products or services; an empty catalog is an intentional state.
+
+Salon checkout and queues have no staff directory, assignment controls or staff reports. Older saved drafts discard staff fields when restored; customer, item and quantity selections remain. Frozen checkout requests containing legacy attribution remain blocked for receipt review rather than rewriting the original request or risking a duplicate sale.
 
 ## Touchscreen tablet layout
 

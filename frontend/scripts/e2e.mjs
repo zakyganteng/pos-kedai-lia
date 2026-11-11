@@ -128,13 +128,12 @@ try {
   const uncategorizedProduct = await request(`/products?businessLineId=${kedai.id}`, { sku: 'E2E-UNCATEGORIZED', name: '[UJI E2E] Produk tanpa kategori', unit: 'item', price: 6000, stockTracked: false }, token);
   const service = await request(`/services?businessLineId=${salon.id}`, { name: '[UJI E2E] Layanan salon', price: 25000, durationMinutes: 30 }, token);
   const customer = await request(`/customers?businessLineId=${kedai.id}`, { name: '[UJI E2E] Pelanggan kasir' }, token);
-  const staff = await request(`/staff?businessLineId=${salon.id}`, { name: '[UJI E2E] Staf salon' }, token);
   const cashierPassword = randomBytes(18).toString('base64url');
   const cashier = await request('/users', { name: '[UJI E2E] Kasir', email: 'cashier-e2e@example.test', password: cashierPassword, role: 'cashier', businessLineIds: [kedai.id] }, token);
   const adminPassword = randomBytes(18).toString('base64url');
   const admin = await request('/users', { name: '[UJI E2E] Admin', email: 'admin-e2e@example.test', password: adminPassword, role: 'admin', businessLineIds: [kedai.id] }, token);
   const fixturePath = join(work, 'fixtures.json');
-  await writeFile(fixturePath, JSON.stringify({ apiUrl, gatewayUrl: `http://127.0.0.1:${gatewayPort}`, secret, email, password, kedai, salon, categories, uncategorizedProduct, tracked, product, longProduct, service, customer, staff, cashier: { ...cashier, password: cashierPassword }, admin: { ...admin, password: adminPassword } }), { mode: 0o600 });
+  await writeFile(fixturePath, JSON.stringify({ apiUrl, gatewayUrl: `http://127.0.0.1:${gatewayPort}`, secret, email, password, kedai, salon, categories, uncategorizedProduct, tracked, product, longProduct, service, customer, cashier: { ...cashier, password: cashierPassword }, admin: { ...admin, password: adminPassword } }), { mode: 0o600 });
   const web = launch('npm', ['run', 'dev', '--', '--port', String(webPort)], { POS_API_URL: apiUrl }, chunk => { webLog += chunk; });
   const url = `http://127.0.0.1:${webPort}`;
   await ready(`${url}/api/session`, web, () => webLog, [401]);

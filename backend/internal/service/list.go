@@ -54,12 +54,6 @@ func (s *Service) CatalogGet(ctx context.Context, u model.User, kind, id string)
 			return nil, err
 		}
 		return json.Marshal(c)
-	case "staff":
-		st, err := s.GetStaff(ctx, u, id)
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(st)
 	default:
 		return nil, lib.NotFound
 	}
@@ -85,12 +79,6 @@ func (s *Service) CatalogSave(ctx context.Context, u model.User, kind, line, id 
 			return nil, err
 		}
 		return json.Marshal(c)
-	case "staff":
-		st, err := s.SaveStaff(ctx, u, line, id, m, archive)
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(st)
 	default:
 		return nil, lib.NotFound
 	}

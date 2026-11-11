@@ -3,13 +3,14 @@ package model
 import "time"
 
 type Item struct {
-	ID           string  `json:"id"`
-	ItemType     string  `json:"itemType"`
-	ItemID       string  `json:"itemId"`
-	DisplayName  string  `json:"displayName"`
-	UnitPrice    int64   `json:"unitPrice"`
-	Quantity     int     `json:"quantity"`
-	LineTotal    int64   `json:"lineTotal"`
+	ID          string `json:"id"`
+	ItemType    string `json:"itemType"`
+	ItemID      string `json:"itemId"`
+	DisplayName string `json:"displayName"`
+	UnitPrice   int64  `json:"unitPrice"`
+	Quantity    int    `json:"quantity"`
+	LineTotal   int64  `json:"lineTotal"`
+	// Retained for immutable historical snapshots; new sales do not assign staff.
 	StaffID      *string `json:"staffId"`
 	StockTracked bool    `json:"stockTracked"`
 }
@@ -29,6 +30,11 @@ type Payment struct {
 	IntentAttempts   int        `json:"intentAttempts"`
 	NextIntentAt     *time.Time `json:"nextIntentAt"`
 	IntentError      *string    `json:"intentError"`
+	Provider         string     `json:"provider,omitempty"`
+	GatewayMode      string     `json:"gatewayMode,omitempty"`
+	CustomerPays     *int64     `json:"customerPays,omitempty"`
+	NextStatusAt     *time.Time `json:"nextStatusAt,omitempty"`
+	StatusError      *string    `json:"statusError,omitempty"`
 }
 
 type Sale struct {
@@ -67,4 +73,22 @@ type Intent struct {
 	Status            string    `json:"status"`
 	QRContent         string    `json:"qrContent"`
 	ExpiresAt         time.Time `json:"expiresAt"`
+	Mode              string    `json:"mode,omitempty"`
+	CustomerPays      *int64    `json:"customerPays,omitempty"`
+}
+
+type ProviderPayment struct {
+	Reference    string
+	Mode         string
+	Status       string
+	OrderAmount  int64
+	CustomerPays int64
+	PaidAt       *time.Time
+}
+
+type ProviderEvent struct {
+	Reference string
+	Mode      string
+	Status    string
+	Amount    int64
 }
