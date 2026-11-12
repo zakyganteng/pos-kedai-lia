@@ -16,10 +16,6 @@ import (
 	"pos/internal/service"
 	"syscall"
 	"time"
-
-	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
 func main() {
@@ -49,14 +45,14 @@ func run(logger *slog.Logger) error {
 		command = os.Args[1]
 	}
 	if command == "migrate" || command == "migrate-up" {
-		if err = runMigrate(ctx, r, c.DatabaseURL, true); err != nil {
+		if err = runMigrate(ctx, r, true); err != nil {
 			return fmt.Errorf("migration failed: %w", err)
 		}
 		logger.Info("migrations applied")
 		return nil
 	}
 	if command == "migrate-down" {
-		if err = runMigrate(ctx, r, c.DatabaseURL, false); err != nil {
+		if err = runMigrate(ctx, r, false); err != nil {
 			return fmt.Errorf("migration down failed: %w", err)
 		}
 		logger.Info("migrations rolled back")
@@ -129,20 +125,10 @@ func run(logger *slog.Logger) error {
 	return err
 }
 
-func runMigrate(ctx context.Context, r *repo.Repo, dbURL string, up bool) error {
-	if m, err := migrate.New("file://migrations", dbURL); err == nil {
-		defer m.Close()
-		if up {
-			if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-				return err
-			}
-			return nil
-		}
-		if err := m.Down(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-			return err
-		}
-		return nil
-	}
+// runMigrate always uses the embedded migrator in internal/repo. The project keeps its own
+// schema_migrations(version, applied_at) table, which is incompatible with golang-migrate's
+// schema_migrations(version, dirty), so the files in migrations/ are kept only as mirrors.
+func runMigrate(ctx context.Context, r *repo.Repo, up bool) error {
 	if up {
 		return r.Migrate(ctx)
 	}

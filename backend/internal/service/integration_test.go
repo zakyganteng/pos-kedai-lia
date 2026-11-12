@@ -89,7 +89,19 @@ type fixture struct {
 	notification *testNotification
 }
 
+// setup migrates a disposable database with an empty catalog: the one-shot menu seed
+// (schema_migrations version 5) is marked applied up front. Use setupWithMenu to run it.
 func setup(t *testing.T) *fixture {
+	t.Helper()
+	return setupDB(t, false)
+}
+
+func setupWithMenu(t *testing.T) *fixture {
+	t.Helper()
+	return setupDB(t, true)
+}
+
+func setupDB(t *testing.T, seedMenu bool) *fixture {
 	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -128,6 +140,11 @@ func setup(t *testing.T) *fixture {
 	var actual string
 	if e = pool.QueryRow(ctx, "SELECT current_database()").Scan(&actual); e != nil || actual != name || actual == "postgres" || strings.HasPrefix(actual, "template") {
 		t.Fatalf("REFUSING migration: expected disposable %s, got %s (%v)", name, actual, e)
+	}
+	if !seedMenu {
+		if _, e = pool.Exec(ctx, "CREATE TABLE schema_migrations(version integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now()); INSERT INTO schema_migrations(version) VALUES(5)"); e != nil {
+			t.Fatal(e)
+		}
 	}
 	if e = r.Migrate(ctx); e != nil {
 		t.Fatal(e)
